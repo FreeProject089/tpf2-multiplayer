@@ -454,3 +454,7 @@ The [dev `616191b1` integration](UPSTREAM_dev_616191b1.md) makes native OPEN LOG
 include the newest startup archive’s game log and `crash_*` files as
 `previous_run_*`, so a restart does not hide the crashed run’s dumps.
 Copies remain subject to the archive budget. Version remains 0.7.0.5.
+
+The [dev `363c38cc` integration](UPSTREAM_dev_363c38cc.md) retains the Windows
+terrain-sidecar concurrent-release fix. Native sidecar capture/serving remains
+unported; native pager and alignment batching behavior is unchanged.

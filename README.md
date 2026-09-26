@@ -255,3 +255,9 @@ The shared lobby implements this on Linux and Windows; version remains 0.7.0.4.
 The [dev `f6e47ef9` integration](docs/linux/UPSTREAM_dev_f6e47ef9.md) adds
 the master's TCP pipe fallback for slow save/mod transfers, shared by Linux
 and Windows. Native shutdown cleanup is preserved; version remains 0.7.0.4.
+
+The [release 0.7.0.5 integration](docs/linux/UPSTREAM_dev_f67726f8.md) advances
+the native package and shared lobby handshake to **0.7.0.5**, stamping the
+previously integrated relay address fix and TCP pipe fallback. All peers,
+including dedicated servers, must update. Existing native feature and
+live-validation limits remain unchanged.

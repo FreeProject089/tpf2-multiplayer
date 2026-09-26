@@ -28,6 +28,7 @@
 #      mod/mp_lockstep_1/
 #      netpunch/netpunch
 #    and packs it as <out>/tpf2mp-linux-<version>.tar.gz (default out: dist/linux).
+#    Also emits -native.run/.tar.gz/.sha256 for tools/publish_release.py.
 set -euo pipefail
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 BUILD=$REPO/native/linux/out-release
@@ -245,6 +246,7 @@ install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_0610033.md" "$STAGE/UPSTREAM_dev_
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_e43d01dd.md" "$STAGE/UPSTREAM_dev_e43d01dd.md"
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_d8a3ce57.md" "$STAGE/UPSTREAM_dev_d8a3ce57.md"
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_96795a8b.md" "$STAGE/UPSTREAM_dev_96795a8b.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_4e1e486c.md" "$STAGE/UPSTREAM_dev_4e1e486c.md"
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_ba1fa26e.md" "$STAGE/UPSTREAM_dev_ba1fa26e.md"
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_f67726f8.md" "$STAGE/UPSTREAM_dev_f67726f8.md"
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_f6e47ef9.md" "$STAGE/UPSTREAM_dev_f6e47ef9.md"
@@ -293,3 +295,10 @@ cat "$REPO/tools/linux/self_extract.sh" "$OUT/$NAME.tar.gz" > "$OUT/$NAME.run"
 chmod 0755 "$OUT/$NAME.run"
 say "== done: $OUT/$NAME.tar.gz ($(du -h "$OUT/$NAME.tar.gz" | cut -f1))"
 say "== installer: $OUT/$NAME.run"
+
+# Stable native package names consumed by the shared release publisher. Keep the
+# original names and archive root for local installers and auto_install.py.
+cp "$OUT/$NAME.tar.gz" "$OUT/$NAME-native.tar.gz"
+cp "$OUT/$NAME.run" "$OUT/$NAME-native.run"
+(cd "$OUT" && sha256sum "$NAME-native.run" "$NAME-native.tar.gz") >"$OUT/$NAME-native.sha256"
+say "== packages assets: $OUT/$NAME-native.{run,tar.gz,sha256}"

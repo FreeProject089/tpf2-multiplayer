@@ -67,7 +67,21 @@ Returning to the title menu leaves the lobby. Use the Linux installer for
 updates. Installation also removes the obsolete `mods/m3_determinism_1` probe,
 with removal shown in `--dry-run`.
 
-Download the `.run` installer, then run:
+From 0.7.0.6 onward, download `tpf2mp-linux-<version>-native.run` and
+`tpf2mp-linux-<version>-native.sha256` from the matching tag in
+[tpf2-multiplayer-packages](https://github.com/silver2127/tpf2-multiplayer-packages/releases).
+Releases through 0.7.0.5 keep their existing assets in the mod repository.
+The mod release carries the launchers; manual native installation uses the
+packages repository. Verify the `.run` entry in the checksum file before running it:
+
+```sh
+sha256sum --check --ignore-missing tpf2mp-linux-<version>-native.sha256
+bash tpf2mp-linux-<version>-native.run
+```
+
+The `-native.tar.gz` contains the same `tpf2mp-linux-<version>/` directory.
+Local builds also retain the original filenames used below. Download or build
+the `.run` installer, then run:
 
 ```sh
 bash tpf2mp-linux-<version>.run
@@ -254,6 +268,12 @@ The script:
    file, `BUILDINFO` and `SHA256SUMS`) and produces both `tpf2mp-linux-<version>.tar.gz` and the self-extracting `tpf2mp-linux-<version>.run` installer.
 
 The lobby builder uses pinned Python and manylinux wheels, checks every bundled ELF dependency against glibc 2.31, and supports `--test` for its five local network/transfer tests. Native build provenance, source commit, included libraries and lobby checksum are recorded in `BUILDINFO`.
+
+The builder also emits byte-identical `-native.run` and `-native.tar.gz` copies
+and a `-native.sha256` listing those two filenames. These are the inputs to
+`tools/publish_release.py --linux-dir dist/linux`; no manual renaming is needed.
+The existing filenames and archive root remain available to local tooling.
+See [the release-layout integration](UPSTREAM_dev_4e1e486c.md).
 
 The version defaults to `installer/VERSION`. See `RESUME_STATUS.md` in the source tree for implementation coverage and remaining runtime validation; packaging success alone does not establish multiplayer parity.
 

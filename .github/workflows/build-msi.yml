@@ -2,8 +2,11 @@
 # release does: installer\build_msi.ps1 (native DLLs, the frozen lobby, the
 # custom-action DLL, wix build, then an administrative-install validation), then
 # tools\build_files_zip.py. A push to main, a v* tag or a manual run gets the
-# artifacts; a v* tag also gets a GitHub release with them attached. Nothing
-# builds on dev or pull requests: the tests run locally, the MSI is for releases.
+# artifacts; a v* tag also gets a draft GitHub release with its notes, which
+# tools/publish_release.py completes: the install files go to the packages
+# repository (silver2127/tpf2-multiplayer-packages, same tag) and the release
+# itself carries the two launchers only. Nothing builds on dev or pull
+# requests: the tests run locally, the MSI is for releases.
 #
 # The runner's Visual Studio is found through vswhere (tools\msvc_env.bat), so no
 # Build Tools path is assumed. WiX v7 is installed as a .NET global tool; passing
@@ -128,17 +131,20 @@ jobs:
         run: |
           $tag = '${{ github.ref_name }}'
           $ver = $tag.Substring(1)
+          # The release shows the two launchers only (tools/publish_release.py attaches them
+          # under these names); the install files go to silver2127/tpf2-multiplayer-packages,
+          # same tag, where the launchers and the Proton script download them.
           $base = 'https://github.com/${{ github.repository }}/releases/download/' + $tag
+          $pkg = 'https://github.com/silver2127/tpf2-multiplayer-packages/releases/tag/' + $tag
           $body = @"
           ## Download
 
           | You play on | Get this one file |
           | --- | --- |
-          | **Windows** (Steam, game build 35924) | **[TpF2Multiplayer.msi]($base/TpF2Multiplayer.msi)** -- close the game, run it, done |
-          | **Linux / Steam Deck** (the Windows game under Proton) | [install_proton.sh]($base/install_proton.sh) -- run it with sh; it fetches the rest itself ([install_proton.py]($base/install_proton.py) does the same with Python) |
-          | Manual install, any platform | [TpF2Multiplayer-files.zip]($base/TpF2Multiplayer-files.zip), checked against [SHA256SUMS.txt]($base/SHA256SUMS.txt) |
+          | **Windows** (Steam, game build 35924) | **[TpF2Multiplayer-Launcher-Windows-Setup.exe]($base/TpF2Multiplayer-Launcher-Windows-Setup.exe)** -- install it, then **Update & play** |
+          | **Linux / Steam Deck** (the native game or Proton) | **[TpF2Multiplayer-Launcher-Linux.AppImage]($base/TpF2Multiplayer-Launcher-Linux.AppImage)** -- make it executable, run it, then **Update & play** |
 
-          The two *Source code* archives at the bottom are the repository, not the mod. Everyone in a session needs the same version.
+          The launcher installs this version and keeps it up to date. Manual install files (MSI, Linux package, Proton script, checksums) are in the [packages for $tag]($pkg). The two *Source code* archives at the bottom are the repository, not the mod. Everyone in a session needs the same version.
 
           "@
           $notes = "installer/RELEASE-$ver.md"
@@ -161,16 +167,13 @@ jobs:
             installer/out/SHA256SUMS.txt
           if-no-files-found: error
 
+      # A draft with the notes only: tools/publish_release.py puts the files above (this
+      # run's artifact) and the native Linux package into the packages repository, attaches
+      # the two launchers here and publishes.
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            installer/out/TpF2Multiplayer.msi
-            installer/out/TpF2Multiplayer-files.zip
-            installer/out/install_proton.py
-            installer/out/install_proton.sh
-            installer/out/SHA256SUMS.txt
           body_path: installer/out/release_body.md
           draft: true
           generate_release_notes: true

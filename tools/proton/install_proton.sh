@@ -22,6 +22,8 @@ if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
 set -eu
 
 REPO="silver2127/tpf2-multiplayer"
+# the install files: this repository from 0.7.0.6 on, REPO's own releases before it
+PACKAGES_REPO="silver2127/tpf2-multiplayer-packages"
 APP_ID="1066780"
 GAME_FOLDER="Transport Fever 2"
 FILES_ASSET="TpF2Multiplayer-files.zip"
@@ -144,11 +146,16 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/tpf2mp-install.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 if [ -z "$files_zip" ]; then
   need curl
-  if [ -n "$version" ]; then base="https://github.com/$REPO/releases/download/v$version"; tag="v$version"
-  else base="https://github.com/$REPO/releases/latest/download"; tag="latest"; fi
+  if [ -n "$version" ]; then tag="v$version"; else tag="latest"; fi
   cache="${XDG_CACHE_HOME:-$HOME/.cache}/tpf2mp/$tag"; mkdir -p "$cache"
   say "Downloading $FILES_ASSET ($tag)..."
-  curl -fsSL --retry 3 -o "$cache/$SUMS_ASSET" "$base/$SUMS_ASSET" || fail "could not download $base/$SUMS_ASSET (no such release, or no network)"
+  base=""
+  for repo in "$PACKAGES_REPO" "$REPO"; do
+    if [ -n "$version" ]; then try="https://github.com/$repo/releases/download/v$version"
+    else try="https://github.com/$repo/releases/latest/download"; fi
+    if curl -fsSL --retry 3 -o "$cache/$SUMS_ASSET" "$try/$SUMS_ASSET" 2>/dev/null; then base="$try"; break; fi
+  done
+  [ -n "$base" ] || fail "could not download $SUMS_ASSET for $tag (no such release, or no network)"
   if [ -t 1 ]; then progress="--progress-bar"; else progress="-sS"; fi     # a bar on a terminal, silence in a log
   curl -fL --retry 3 $progress -o "$cache/$FILES_ASSET" "$base/$FILES_ASSET" || fail "could not download $base/$FILES_ASSET"
   # tr: a sums file written on Windows ends its lines in \r\n, and "name$" would never match

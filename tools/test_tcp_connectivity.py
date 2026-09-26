@@ -73,6 +73,149 @@ class TcpConnectivity(unittest.TestCase):
                 chunks.append(chunk)
         self.assertEqual(b"".join(chunks), b"ABCDEF")
 
+    def _begin_through(self, peer, tcp):
+        """on_begin of a small save from `peer`; returns the addresses _tcp_pull dialled."""
+        dialled = []
+        conn = types.SimpleNamespace(peer=peer, send=lambda *a, **k: None, sock=None)
+        receiver = lobby._ClientSaveReceiver(conn, types.SimpleNamespace(emit=lambda event: None, write_state=lambda **k: None),
+                                             lambda *args: None)
+        receiver._send = lambda msg: None
+        receiver._tcp_pull = lambda ip, *rest: dialled.append(ip)
+        msg = {"t": "fbegin", "sid": 5, "kind": "save", "total_bytes": 6, "total_chunks": 1, "chunk": 1350,
+               "files": [{"name": "incoming_save.sav", "size": 6}], "mods": [], "tcp": tcp}
+        with patch.object(lobby, "BULK_TCP", [True]), \
+             patch.object(threading, "Thread", lambda target, args, **k: types.SimpleNamespace(start=lambda: target(*args))):
+            receiver.on_begin(msg)
+        return dialled
+
+    def test_relayed_join_dials_the_host_never_the_relay(self):
+        # 2026-09-26: a joiner in through the master's UDP relay dialled TCP at the
+        # relay's address with the host's port, three times, before taking UDP
+        relay = ("76.13.109.1", 29600)
+        with patch.object(lobby, "MASTER_RELAY_ADDRS", {relay}):
+            self.assertTrue(lobby._is_master_relay(relay))
+            self.assertFalse(lobby._is_master_relay(("76.13.109.1", 29471)))
+            named = self._begin_through(relay, {"port": 29471, "token": "t", "addrs": ["203.0.113.5"]})
+            self.assertEqual(named, [["203.0.113.5"]])          # the host's own address, not the relay
+            self.assertEqual(self._begin_through(relay, {"port": 29471, "token": "t"}), [])   # none named: UDP at once
+        # a direct join still dials the address the lobby came from
+        self.assertEqual(self._begin_through(("198.51.100.7", 29471), {"port": 29471, "token": "t"}), ["198.51.100.7"])
+
+    def test_host_advertises_tcp_addresses_to_relayed_targets(self):
+        relay = ("192.0.2.1", 29600)
+        direct = ("198.51.100.7", 29471)
+        addresses = ["203.0.113.5", "2001:db8::5"]
+        listener = types.SimpleNamespace(port=29471, expect=lambda *args: None)
+        with patch.object(lobby, "MASTER_RELAY_ADDRS", {relay}), \
+             patch.object(lobby, "BULK_TCP", [True]), \
+             patch.object(lobby, "BULK", [listener]), \
+             patch.object(lobby, "MY_TCP_ADDRS", [addresses]):
+            for peers, advertised in (([relay], True), ([direct, relay], True), ([direct], False)):
+                with self.subTest(peers=peers):
+                    transfer = lobby._HostSaveTransfer(
+                        None, 5, b"ABCDEF", [{"name": "incoming_save.sav", "size": 6}],
+                        [(peer, str(i)) for i, peer in enumerate(peers)], None, lambda *args: None)
+                    tcp = transfer.begin_msg["tcp"]
+                    self.assertEqual(tcp["port"], listener.port)
+                    self.assertTrue(tcp["token"])
+                    if advertised:
+                        self.assertEqual(tcp["addrs"], addresses)
+                        self.assertIsNot(tcp["addrs"], addresses)
+                    else:
+                        self.assertNotIn("addrs", tcp)
+
+    def test_master_pipe_pairs_by_id_and_role(self):
+        import masterserver
+        port = masterserver.start_pipe(0, "127.0.0.1")
+        got = {}
+
+        def end(pair, role, key):
+            got[key] = bulk_tcp.pipe_connect("127.0.0.1", port, pair, role, wait=5)
+        a, b = "a" * 32, "b" * 32
+        ts = [threading.Thread(target=end, args=args) for args in ((a, "H", "ah"), (a, "J", "aj"), (b, "H", "bh"))]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join(8)
+        self.assertIsNotNone(got["ah"])
+        self.assertIsNotNone(got["aj"])
+        self.assertIsNone(got["bh"])                     # its joiner never came: no pairing with anyone else
+        for s in (got["ah"], got["aj"]):
+            self.addCleanup(s.close)
+        got["ah"].sendall(b"host->joiner")
+        got["aj"].sendall(b"joiner->host")
+        self.assertEqual(bulk_tcp._read_exact(got["aj"], 12), b"host->joiner")
+        self.assertEqual(bulk_tcp._read_exact(got["ah"], 12), b"joiner->host")
+
+    def test_slow_transfer_streams_through_the_master_pipe(self):
+        import masterserver
+        port = masterserver.start_pipe(0, "127.0.0.1")
+        blob = os.urandom(3 * 1024 * 1024 + 17)
+        logs = []
+        # the host's side: the sender with only what the pipe path touches
+        host = lobby._HostSaveTransfer.__new__(lobby._HostSaveTransfer)
+        host.sid, host.tcp_token, host.blob, host.kind = 9, "f" * 32, blob, "save"
+        host.total_bytes, host.tcp_bytes, host._tcp_lock = len(blob), 0, threading.Lock()
+        host.log, host.io = logs.append, types.SimpleNamespace(emit=lambda event: None)
+        p = {"name": "Joiny", "state": "active", "tcp": False, "ready": True}
+        # the joiner's side: a real receiver on the same transfer
+        rx = lobby._ClientSaveReceiver(types.SimpleNamespace(peer=("76.13.109.1", 29600)),
+                                       types.SimpleNamespace(emit=lambda event: None), logs.append)
+        rx.sid, rx.kind, rx.total_bytes, rx._tcp_token, rx.my_name = 9, "save", len(blob), host.tcp_token, "Joiny"
+        pair = os.urandom(16).hex()
+        h = threading.Thread(target=host._pipe_serve, args=(p, pair, ("127.0.0.1", port)), daemon=True)
+        h.start()
+        # TCP recv sizes vary by platform: even 3 MiB can fill the bounded
+        # queue. Consume while reading, as the real lobby loop does.
+        j = threading.Thread(target=rx._pipe_pull,
+                             args=("127.0.0.1", port, pair, 9, host.tcp_token), daemon=True)
+        j.start()
+        chunks = []
+        while True:
+            try:
+                sid, chunk = rx._tcp_q.get(timeout=10)
+            except queue.Empty:
+                self.fail("pipe stopped producing chunks: " + "\n".join(map(str, logs)))
+            self.assertEqual(sid, 9)
+            if chunk is None:
+                break
+            self.assertNotEqual(chunk, b"", "pipe stream failed")
+            chunks.append(chunk)
+        h.join(10)
+        j.join(10)
+        self.assertFalse(h.is_alive() or j.is_alive(), "pipe workers did not finish")
+        self.assertEqual(b"".join(chunks), blob, "\n".join(map(str, logs)))
+        self.assertTrue(p["tcp"] and rx.tcp_active)
+
+    def test_pipe_only_for_a_slow_transfer_and_once(self):
+        sent, started = [], []
+        host = lobby._HostSaveTransfer.__new__(lobby._HostSaveTransfer)
+        host.sid, host.tcp_token, host.chunk, host.total_bytes, host.sock = 3, "t", 1350, 200 << 20, None
+        host.log = lambda *a: None
+        now = 1000.0
+
+        def peer(done_bytes, ready_for):
+            return {"name": "J", "tcp": False, "base": done_bytes // 1350, "ready_at": now - ready_for}
+        with patch.object(lobby, "MASTER_PIPE", [("198.51.100.1", 29700)]), \
+             patch.object(lobby, "_send_data", lambda sock, addr, msg: sent.append(msg)), \
+             patch.object(threading, "Thread", lambda target, args, **k: types.SimpleNamespace(start=lambda: started.append(args))):
+            slow = peer(6 << 20, 20)                   # 0.3 MB/s: ~11 min to go
+            host._maybe_pipe(("198.51.100.9", 1), slow, now)
+            host._maybe_pipe(("198.51.100.9", 1), slow, now + 5)        # once
+            host._maybe_pipe(("198.51.100.9", 1), peer(180 << 20, 20), now)   # 9 MB/s: done in seconds
+            host._maybe_pipe(("198.51.100.9", 1), peer(1 << 20, 5), now)      # too early to judge
+            host.total_bytes = 8 << 20
+            host._maybe_pipe(("198.51.100.9", 1), peer(1 << 20, 30), now)     # small: not worth a pipe
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(sent[0]["t"], "bulk_pipe")
+        self.assertEqual((sent[0]["ip"], sent[0]["port"]), ("198.51.100.1", 29700))
+        self.assertEqual(len(sent[0]["pair"]), 32)
+        self.assertEqual(len(started), 1)
+        with patch.object(lobby, "MASTER_PIPE", [None]):      # no pipe offered: nothing happens
+            host.total_bytes = 200 << 20
+            host._maybe_pipe(("198.51.100.9", 1), peer(6 << 20, 20), now)
+        self.assertEqual(len(sent), 1)
+
     def test_both_families_both_directions_and_auth(self):
         listener = bulk_tcp.BulkListener(0)
         self.addCleanup(listener.close)

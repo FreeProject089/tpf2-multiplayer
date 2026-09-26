@@ -241,3 +241,17 @@ runtime/boot metadata and standalone collector credential masking.
 The [dev `01044521` integration](docs/linux/UPSTREAM_dev_01044521.md) expands the native public
 browser to twelve games per page and up to 48 games, and removes the legacy
 panel renderer. Closing a running resync leaves the game visible.
+
+The [release 0.7.0.4 integration](docs/linux/UPSTREAM_dev_e86d5552.md) advances the native package
+and shared lobby handshake to **0.7.0.4**. All peers, including dedicated
+servers, must update. This release stamps the previously integrated hot-join,
+menu and log fixes; existing native feature and live-validation limits remain.
+
+The [dev `c74a7b4e` integration](docs/linux/UPSTREAM_dev_c74a7b4e.md) fixes
+TCP save routing after joining through the master's UDP relay: the joiner tries
+the host's advertised addresses, or continues on UDP when none are available.
+The shared lobby implements this on Linux and Windows; version remains 0.7.0.4.
+
+The [dev `f6e47ef9` integration](docs/linux/UPSTREAM_dev_f6e47ef9.md) adds
+the master's TCP pipe fallback for slow save/mod transfers, shared by Linux
+and Windows. Native shutdown cleanup is preserved; version remains 0.7.0.4.

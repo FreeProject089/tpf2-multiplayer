@@ -29,7 +29,7 @@ class VersionGateTest(unittest.TestCase):
                 try:
                     conn = lobby._dial_loopback(0, port, 5)
                     self.assertIsNotNone(conn)
-                    for version in (None, "0.4.22", "99.0.0", 23, {}, lobby.LOBBY_VERSION):
+                    for version in (None, "0.4.22", "0.7.0.3", "99.0.0", 23, {}, lobby.LOBBY_VERSION):
                         msg = {"t": "join", "name": "tester"}
                         if version is not None:
                             msg["version"] = version

@@ -275,6 +275,12 @@ and a `-native.sha256` listing those two filenames. These are the inputs to
 The existing filenames and archive root remain available to local tooling.
 See [the release-layout integration](UPSTREAM_dev_4e1e486c.md).
 
+Launcher-only updates use `python3 tools/publish_release.py launcher`
+(default: draft; `--publish` publishes). They need no `--linux-dir` and use
+`launcher-v<version>` tags with `make_latest=false`; Latest remains the mod
+release. Mod releases still require `--linux-dir` and include the launchers.
+See [the launcher-release integration](UPSTREAM_dev_e12ed657.md).
+
 The version defaults to `installer/VERSION`. See `RESUME_STATUS.md` in the source tree for implementation coverage and remaining runtime validation; packaging success alone does not establish multiplayer parity.
 
 ### Big Maps in the unified package

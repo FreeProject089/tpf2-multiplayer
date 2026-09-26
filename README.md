@@ -275,3 +275,7 @@ The [dev `4e1e486c` integration](docs/linux/UPSTREAM_dev_4e1e486c.md) moves inst
 assets to the packages repository while the mod release carries the launchers.
 Native builds now emit the publisher's `-native` assets and checksums; see
 [manual native installation](docs/linux/INSTALL.md). Version remains 0.7.0.5.
+
+The [dev `e12ed657` integration](docs/linux/UPSTREAM_dev_e12ed657.md) adds
+separate `launcher-v<version>` releases without moving the Latest mod release.
+The shared publisher supports Linux AppImages; native version remains 0.7.0.5.

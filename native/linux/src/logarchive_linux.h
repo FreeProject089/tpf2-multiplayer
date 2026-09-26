@@ -73,7 +73,9 @@
 // and <game>/netpunch, the Lua side's fallback), the game's stdout.txt, and the
 // crash dumps written since the last archive. stdout_old.txt is left out: at
 // start it holds the run before the last one, which that run's start already
-// saved. The newest TPF2_LOG_KEEP folders of each kind are kept. about.txt
+// saved. OPEN LOGS also copies the newest previous archive's game log and
+// crash_* files as previous_run_*, keeping dumps whole within the copy budget.
+// The newest TPF2_LOG_KEEP folders of each kind are kept. about.txt
 // names the files without the user's paths: these folders get sent in bug reports.
 //
 // Built for a game that crashes a lot, because that is when the logs matter:
@@ -534,6 +536,7 @@ static inline bool Tpf2mpArchiveLogs(bool previousSession, const char* gameDir, 
     // The existing archives, by kind; the newest one's time bounds the dumps.
     // A folder's mtime is when its last file was placed: the end of that archive.
     timespec since = {};
+    char newestPrevious[32] = {};
     char names[2][64][32];
     size_t count[2] = { 0, 0 };
     if (DIR* d = opendir(out->root)) {
@@ -544,6 +547,8 @@ static inline bool Tpf2mpArchiveLogs(bool previousSession, const char* gameDir, 
             if (kind < 0 || !LaFmt(p, sizeof(p), "%s%s", out->root, e->d_name)) continue;
             if (stat(p, &st) != 0 || !S_ISDIR(st.st_mode)) continue;
             if (LaNewer(st.st_mtim, since)) since = st.st_mtim;
+            if (kind == 0 && strlen(e->d_name) < sizeof(newestPrevious) &&
+                strcmp(e->d_name, newestPrevious) > 0) strcpy(newestPrevious, e->d_name);
             if (count[kind] < 64 && strlen(e->d_name) < 32) strcpy(names[kind][count[kind]++], e->d_name);
         }
         closedir(d);
@@ -782,6 +787,18 @@ static inline bool Tpf2mpArchiveLogs(bool previousSession, const char* gameDir, 
                 place(src, dest, shown, false, 0);   // whole: a cut minidump is useless
             }
         }
+    }
+    // 4. OPEN LOGS after a restart: startup already counted the dead run's
+    // dumps in `since`. Recover its log and every crash_* from that archive.
+    // Keep dumps whole (no log tail cap), within the shared copy budget.
+    if (!previousSession && newestPrevious[0]) {
+        char src[PATH_MAX], dir[PATH_MAX], shown[PATH_MAX];
+        if (LaFmt(src, sizeof(src), "%s%s/game_stdout.txt", out->root, newestPrevious))
+            place(src, "previous_run_game_stdout.txt",
+                  "game log of the previous run (from the newest -previous archive)", false, TPF2_LOG_TAIL_BYTES);
+        if (LaFmt(dir, sizeof(dir), "%s%s/", out->root, newestPrevious) &&
+            LaFmt(shown, sizeof(shown), "logs/%s", newestPrevious))
+            each(dir, "crash_*", "previous_run_", shown, false, 0);
     }
     // State is copied after every log/dump, using the remaining copy budget.
     LaNote(about, "\nState files (the last 8 MB of each)\n");

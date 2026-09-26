@@ -151,7 +151,20 @@ int main()
     assert(!exists(data + L"tpf2_slice.log") && exists(std::wstring(b.folder) + L"\\tpf2_slice.log"));
     assert(exists(data + L"tpf2_bridge_ctl.txt") && exists(std::wstring(b.folder) + L"\\state_tpf2_bridge_ctl.txt"));
 
-    printf("PASS: versions, state files (copied, 8 MB tail), game/plugin cfg, lobby stream with codes masked, no save/terrain, keep %d\n",
+    // after a crash: the start-of-run archive took the dump, so OPEN LOGS brings
+    // it from there along with that run's game log
+    const std::wstring prev = std::wstring(b.folder) + L"\\";
+    put(prev + L"game_stdout.txt", "THE RUN THAT DIED\n");
+    put(prev + L"crash_f9f9b880.dmp", "MDMP");
+    put(prev + L"crash_f9f9b880_stdout.txt", "LOG BESIDE THE DUMP\n");
+    Tpf2mpLogArchive c;
+    assert(Tpf2mpArchiveLogsSafe(false, game.c_str(), &c) && c.folder[0]);
+    const std::wstring cf = std::wstring(c.folder) + L"\\";
+    assert(get(cf + L"previous_run_game_stdout.txt") == "THE RUN THAT DIED\n");
+    assert(get(cf + L"previous_run_crash_f9f9b880.dmp") == "MDMP");
+    assert(get(cf + L"previous_run_crash_f9f9b880_stdout.txt") == "LOG BESIDE THE DUMP\n");
+
+    printf("PASS: versions, a crashed run's dumps, state files (copied, 8 MB tail), game/plugin cfg, lobby stream with codes masked, no save/terrain, keep %d\n",
            TPF2_LOG_KEEP);
     return 0;
 }

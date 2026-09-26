@@ -128,3 +128,26 @@ also collected. These are source-level contracts, not inferred game layouts.
 The lab launch failed before game execution (`bwrap: setting up uid map:
 Permission denied`). Thus no live startup/archive/UI result is claimed.
 See [integration and tests](../../linux/UPSTREAM_dev_45183ac6.md).
+
+## dev 616191b1: previous-run crash recovery (2026-09-26)
+
+The native archiver now copies the newest startup archive's `game_stdout.txt`
+and every regular `crash_*` file into OPEN LOGS as `previous_run_*`. This is
+needed because the startup archive's modification time already excludes the
+crashed run's original dump from the next "since last archive" scan.
+The previous-run log step was also missing on native Linux and is included.
+
+Selection uses the existing `LaArchiveKind` parser and archive-name order,
+including same-second numeric suffixes. It tracks the newest previous archive
+independently of the bounded retention list. Copies use the existing POSIX
+collector and 200 MiB aggregate budget, before state files. Dumps are copied
+whole (tail cap zero); the source archive is retained. Startup archives do not
+recursively carry previous archives. Linux does not generate Windows's
+per-dump stdout companion, but any archived `crash_*` companion is preserved.
+
+No game location, offset, hook, patch bytes, calling convention or lifetime
+contract changes. No new ELF analysis or live ABI probe is needed. The native
+filesystem regression exercises a startup containing a synthetic >32 MiB
+dump, then OPEN LOGS while the original dump is excluded by timestamp. This
+is fixture evidence, not an observed game crash or UI interaction.
+See [integration and validation](../../linux/UPSTREAM_dev_616191b1.md).

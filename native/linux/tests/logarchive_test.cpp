@@ -1,5 +1,6 @@
 #include "logarchive_linux.h"
 #include <cassert>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -69,20 +70,51 @@ int main(int argc, char** argv) {
     for(auto name:{"game_tpf2_menu_flags.txt","game_tpf2_slice.cfg","mod_plugins_test.cfg","game_plugins_test.cfg","game_tpf2mp_version.txt","netpunch_lobby_proc.log"}) assert(fs::exists(out/name));
     for(auto name:{"netpunch_incoming_save.txt","netpunch_incoming_save.sav","state_terrain_a.bin"}) assert(!fs::exists(out/name));
     assert(count(mod/"logs",1)==5 && count(mod/"logs",0)==6);
+    // A crash after OPEN LOGS, followed by startup archiving the dead run.
+    const fs::path crashDir=xdg/"Steam/userdata/42/1066780/local/crash_dump";
+    std::string dump((32u<<20)+17, 'D'); dump.replace(0,4,"MDMP");
+    put(crashDir/"dead.dmp", dump);
+    fs::last_write_time(out, fs::file_time_type::clock::now()-std::chrono::seconds(10));
     assert(Tpf2mpArchiveLogsSafe(true,gameDir.c_str(),&a));
     assert(!fs::exists(data/"tpf2_bridge.log") && get(fs::path(a.folder)/"tpf2_bridge.log")=="bridge\n");
     assert(get(data/"tpf2_bridge_ctl.txt")==ctl && get(fs::path(a.folder)/"state_tpf2_bridge_ctl.txt")==ctl);
     assert(count(mod/"logs",0)==5);
+    const fs::path previous=a.folder;
+    assert(get(previous/"crash_dead.dmp")==dump);
+    // Exercise all crash_* files, even though native Breakpad has no per-dump log.
+    put(previous/"crash_dead_stdout.txt", "log beside dump\n");
+    put(previous/"unrelated.txt", "excluded");
+    put(crashDir/"stdout.txt", "restarted game\n");
+    fs::last_write_time(crashDir/"dead.dmp", fs::file_time_type::clock::now()-std::chrono::seconds(10));
+    Tpf2mpLogArchive current;
+    assert(Tpf2mpArchiveLogsSafe(false,gameDir.c_str(),&current));
+    const fs::path now=current.folder;
+    assert(get(now/"game_stdout.txt")=="restarted game\n");
+    assert(get(now/"previous_run_game_stdout.txt")=="game stdout\n");
+    assert(get(now/"previous_run_crash_dead.dmp")==dump); // No 32 MiB tail truncation.
+    assert(get(now/"previous_run_crash_dead_stdout.txt")=="log beside dump\n");
+    assert(!fs::exists(now/"crash_dead.dmp")); // Timestamp filter excludes the original.
+    assert(!fs::exists(now/"previous_run_unrelated.txt"));
+    assert(get(previous/"crash_dead.dmp")==dump); // Copy, never move.
+    assert(get(now/"about.txt").find("/crash_dead.dmp")!=std::string::npos);
+
     fs::remove(mod/"tpf2mp_install.txt");
     put(data/"tpf2_bridge.log","live\n");
     // The previous Safe call holds a shared liveness lock: a second caller copies.
     assert(Tpf2mpArchiveLogsSafe(true,gameDir.c_str(),&a)); assert(get(data/"tpf2_bridge.log")=="live\n");
     assert(get(fs::path(a.folder)/"about.txt").find("version fallback")!=std::string::npos);
+    // A later startup (including same-second numeric suffixes) wins over the
+    // crashed run. Startup itself must not recursively copy previous archives.
+    const fs::path newer=a.folder;
+    assert(!fs::exists(newer/"previous_run_crash_dead.dmp"));
+    assert(Tpf2mpArchiveLogsSafe(false,gameDir.c_str(),&current));
+    assert(get(fs::path(current.folder)/"previous_run_game_stdout.txt")=="restarted game\n");
+    assert(!fs::exists(fs::path(current.folder)/"previous_run_crash_dead.dmp"));
     put(data/"tpf2mp_keep_logs.txt", "1\n");
     assert(Tpf2mpArchiveLogsSafe(true,gameDir.c_str(),&a));
     assert(count(mod/"logs",0)==6 && get(data/"tpf2_bridge.log")=="live\n");
     // Empty/malformed ELF input is safe and produces no invented identity.
     put(root/"bad", "not an ELF"); int fd=open((root/"bad").c_str(),O_RDONLY); char id[129]; LaBuildId(fd,id,sizeof(id)); close(fd); assert(!id[0]);
     fs::remove_all(root);
-    puts("PASS: native identities, state, tails, redaction, exclusion, retention, startup/liveness");
+    puts("PASS: previous-run crash recovery, native identities, state, tails, redaction, exclusion, retention, startup/liveness");
 }

@@ -449,3 +449,8 @@ The [dev `2f65bae3` integration](UPSTREAM_dev_2f65bae3.md) adds compressed terra
 with checksum validation to native capture and replay. Every peer needs this
 build; the unchanged 0.7.0.5 version handshake does not detect older terrain
 readers. Uncompressed version-1 edits remain readable.
+
+The [dev `616191b1` integration](UPSTREAM_dev_616191b1.md) makes native OPEN LOGS
+include the newest startup archive’s game log and `crash_*` files as
+`previous_run_*`, so a restart does not hide the crashed run’s dumps.
+Copies remain subject to the archive budget. Version remains 0.7.0.5.

@@ -59,6 +59,34 @@ class TcpConnectivity(unittest.TestCase):
                 chunks.append(chunk)
         self.assertEqual(b"".join(chunks), b"ABCDEF")
 
+    def _begin_through(self, peer, tcp):
+        """on_begin of a small save from `peer`; returns the addresses _tcp_pull dialled."""
+        dialled = []
+        conn = types.SimpleNamespace(peer=peer, send=lambda *a, **k: None, sock=None)
+        receiver = lobby._ClientSaveReceiver(conn, types.SimpleNamespace(emit=lambda event: None, write_state=lambda **k: None),
+                                             lambda *args: None)
+        receiver._send = lambda msg: None
+        receiver._tcp_pull = lambda ip, *rest: dialled.append(ip)
+        msg = {"t": "fbegin", "sid": 5, "kind": "save", "total_bytes": 6, "total_chunks": 1, "chunk": 1350,
+               "files": [{"name": "incoming_save.sav", "size": 6}], "mods": [], "tcp": tcp}
+        with patch.object(lobby, "BULK_TCP", [True]), \
+             patch.object(threading, "Thread", lambda target, args, **k: types.SimpleNamespace(start=lambda: target(*args))):
+            receiver.on_begin(msg)
+        return dialled
+
+    def test_relayed_join_dials_the_host_never_the_relay(self):
+        # 2026-09-26: a joiner in through the master's UDP relay dialled TCP at the
+        # relay's address with the host's port, three times, before taking UDP
+        relay = ("76.13.109.1", 29600)
+        with patch.object(lobby, "MASTER_RELAY_ADDRS", {relay}):
+            self.assertTrue(lobby._is_master_relay(relay))
+            self.assertFalse(lobby._is_master_relay(("76.13.109.1", 29471)))
+            named = self._begin_through(relay, {"port": 29471, "token": "t", "addrs": ["203.0.113.5"]})
+            self.assertEqual(named, [["203.0.113.5"]])          # the host's own address, not the relay
+            self.assertEqual(self._begin_through(relay, {"port": 29471, "token": "t"}), [])   # none named: UDP at once
+        # a direct join still dials the address the lobby came from
+        self.assertEqual(self._begin_through(("198.51.100.7", 29471), {"port": 29471, "token": "t"}), ["198.51.100.7"])
+
     def test_both_families_both_directions_and_auth(self):
         listener = bulk_tcp.BulkListener(0)
         self.addCleanup(listener.close)

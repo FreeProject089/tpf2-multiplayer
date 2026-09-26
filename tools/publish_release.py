@@ -4,6 +4,7 @@ version's v-tagged release, the two launchers to its download page, then publish
 
     python tools/publish_release.py v0.7.0.6 --linux-dir DIR [--publish]
     python tools/publish_release.py launcher [--publish]     a launcher update on its own
+    python tools/publish_release.py page v0.7.0.5 [--publish] a published version to this layout
 
 THE LAYOUT (2026-09-26, the user: releases should "only show 2 things to download
 the linux launcher and the windows launcher", then: "move to the two launcher
@@ -51,6 +52,11 @@ WHAT IT DOES for a version, in order (each step checks, nothing is published hal
   6. with --publish: the page (Latest unless a pre-release), then v<version> (never
      Latest), in that order.
 Without a Linux launcher yet, --no-linux-launcher publishes the Windows one alone.
+
+PAGE (the user, 2026-09-26: "now for two launcher on the original page"): a version
+published before this layout (0.7.0.5) gets its page <version> with the two
+launchers and its notes, the download table replaced by the launchers; v<version>
+keeps its files, is renamed "(install files)", and is published again after the page.
 
 The token is GH_TOKEN, else the one Git stores for github.com (git credential fill).
 """
@@ -378,9 +384,80 @@ def launcher_release(gh, args):
             say("left as a draft (--publish publishes it)")
 
 
+def launcher_table(page_tag, files_url):
+    base = f"https://github.com/{REPO}/releases/download/{page_tag}"
+    return ("## Download\n\n| You play on | Get this one file |\n| --- | --- |\n"
+            f"| **Windows** (Steam, game build 35924) | **[{WINDOWS_NAME}]({base}/{WINDOWS_NAME})** -- install it, then **Update & play** |\n"
+            f"| **Linux / Steam Deck** (the native game or Proton) | **[{LINUX_NAME}]({base}/{LINUX_NAME})** -- make it executable, run it, then **Update & play** |\n\n"
+            f"The launcher installs this version and keeps it up to date. Manual install files (MSI, Linux package, Proton script, checksums) "
+            f"are in [the install files]({files_url}). The two *Source code* archives at the bottom are the repository, not the mod. "
+            "Everyone in a session needs the same version.\n")
+
+
+def page_release(gh, args):
+    """A version published before this layout: its page with the two launchers, then its
+    v-release (the files, untouched) renamed and published again after the page."""
+    tag = args.page_tag
+    if not re.fullmatch(r"v\d+\.\d+(\.\d+){0,2}", tag or ""):
+        fail("page needs the version's tag, e.g. page v0.7.0.5")
+    version, page_tag = tag[1:], tag[1:]
+    mod = find_release(gh, tag)
+    if mod is None or mod["draft"]:
+        fail(f"{tag} is not a published release (a new version goes through publish_release.py {tag})")
+    if not any(a["name"] == "TpF2Multiplayer.msi" for a in mod["assets"]):
+        fail(f"{tag} has no TpF2Multiplayer.msi: launchers up to 1.2.0 could not install it")
+    page = find_release(gh, page_tag)
+    if page and not page["draft"] and not args.dry_run:
+        fail(f"the page {page_tag} is already published")
+    # the page at the commit the version's tag names
+    ref = gh.call("GET", f"/repos/{REPO}/git/ref/tags/{tag}")["object"]
+    commit = gh.call("GET", f"/repos/{REPO}/git/tags/{ref['sha']}")["object"]["sha"] if ref["type"] == "tag" else ref["sha"]
+    notes = mod.get("body") or ""
+    files_url = mod["html_url"]
+    rest = notes.split("\n## ", 1)[1] if notes.startswith("## Download") and "\n## " in notes else notes
+    body = launcher_table(page_tag, files_url) + ("\n## " + rest if notes.startswith("## Download") else "\n" + rest)
+    files_body = (f"The install files of **[TpF2 Multiplayer {version}](https://github.com/{REPO}/releases/tag/{page_tag})**, "
+                  f"which the launchers download. Players: get the launcher from [that page](https://github.com/{REPO}/releases/tag/{page_tag}).\n\n"
+                  + notes)
+    with tempfile.TemporaryDirectory(prefix="tpf2mp-page-") as tmp:
+        chosen = launchers(gh, args, Path(tmp))
+        if page is None:
+            say(f"creating the page {page_tag} at {commit[:10]}")
+            page = gh.write(f"create the page {page_tag}", "POST", f"/repos/{REPO}/releases", body={
+                "tag_name": page_tag, "target_commitish": commit, "name": mod["name"] or f"TpF2 Multiplayer {version}",
+                "body": body, "draft": True, "prerelease": mod["prerelease"], "make_latest": "false"})
+        elif page.get("body") != body:
+            gh.write(f"update the page {page_tag}'s notes", "PATCH", f"/repos/{REPO}/releases/{page['id']}", body={"body": body})
+        if page is None:
+            say(f"  (dry run) the page would carry: {', '.join(n for _, n in chosen)}")
+        else:
+            page["_repo"] = REPO
+            keep = {n for _, n in chosen}
+            for a in page.get("assets", []):
+                if a["name"] not in keep:
+                    gh.write(f"remove {a['name']} from the page", "DELETE", f"/repos/{REPO}/releases/assets/{a['id']}")
+            page["assets"] = [a for a in page.get("assets", []) if a["name"] in keep]
+            say(f"page {page_tag} launchers:")
+            upload(gh, page, [p for p, _ in chosen], [n for _, n in chosen])
+    if not args.publish:
+        say("left the page as a draft (--publish publishes it, then the install files again)")
+        return
+    if page is not None:
+        published(gh, page, not mod["prerelease"])
+        say(f"published: https://github.com/{REPO}/releases/tag/{page_tag}")
+    files_name = f"TpF2 Multiplayer {version} (install files)"
+    mod["name"], mod["body"] = files_name, files_body
+    if not args.dry_run:
+        time.sleep(2)
+    # renamed and re-created in one go: republish takes the name and notes from `mod`
+    republish(gh, mod, args.dry_run)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("tag", help="the release tag, e.g. v0.7.0.6, or 'launcher' for a launcher update on its own")
+    ap.add_argument("tag", help="the release tag, e.g. v0.7.0.6; 'launcher' for a launcher update on its own; "
+                                "'page' to move a published version to this layout")
+    ap.add_argument("page_tag", nargs="?", help="with page: the version's tag, e.g. v0.7.0.5")
     ap.add_argument("--linux-dir", help="folder with tpf2mp-linux-<v>-native.run/.tar.gz/.sha256 (a mod version)")
     ap.add_argument("--payload-dir", help="folder with the Windows/Proton files instead of the tag run's artifact")
     ap.add_argument("--windows-launcher", help="a launcher Setup.exe instead of tearded's newest release")
@@ -391,6 +468,8 @@ def main():
     args = ap.parse_args()
     if args.tag == "launcher":
         return launcher_release(GitHub(token(), args.dry_run), args)
+    if args.tag == "page":
+        return page_release(GitHub(token(), args.dry_run), args)
     if not re.fullmatch(r"v\d+\.\d+(\.\d+){0,2}", args.tag):
         fail("the tag looks like v0.7.0.6, or is 'launcher'")
     if not args.linux_dir:

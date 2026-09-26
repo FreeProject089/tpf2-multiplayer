@@ -290,5 +290,111 @@ class RepublishTest(unittest.TestCase):
         self.assertEqual(self.calls[0][2]['body']['tag_name'], 'launcher-v1.3.0')
         self.assertEqual(self.calls[3][2]['body']['tag_name'], 'v0.7.0.5')
 
+
+class PageReleaseTest(unittest.TestCase):
+    """Migrate a published version using only fixture assets and a fake service."""
+    setUp = LauncherReleaseTest.setUp
+    write = LauncherReleaseTest.write
+
+    def call(self, method, url, **kw):
+        if method != 'GET':
+            return self.write('fixture mutation', method, url, **kw)
+        if url.endswith('/git/ref/tags/v0.7.0.5'):
+            return {'object': {'type': self.ref_type, 'sha': 'tag-object' if self.ref_type == 'tag' else 'version-commit'}}
+        if url.endswith('/git/tags/tag-object'):
+            return {'object': {'type': 'commit', 'sha': 'version-commit'}}
+        return LauncherReleaseTest.call(self, method, url)
+
+    def prepare(self):
+        self.args.page_tag = 'v0.7.0.5'
+        self.ref_type = 'commit'
+        self.notes = '## Download\n\nold download table\n\n## Changes\n\nVersion notes.\n'
+        self.mod = dict(id=7, tag_name=self.args.page_tag, draft=False, prerelease=False,
+                        name='TpF2 Multiplayer 0.7.0.5', body=self.notes,
+                        html_url='https://example.invalid/v0.7.0.5', assets=[])
+        self.payload = {name: ('fixture ' + name).encode() for name in (
+            *publisher.PAYLOAD, 'tpf2mp-linux-0.7.0.5-native.run',
+            'tpf2mp-linux-0.7.0.5-native.tar.gz', 'tpf2mp-linux-0.7.0.5-native.sha256')}
+        self.blobs.update(self.payload)
+        self.mod['assets'] = [dict(name=name, browser_download_url=name,
+                                  digest='sha256:' + hashlib.sha256(data).hexdigest())
+                              for name, data in self.payload.items()]
+        self.existing = [self.mod]
+        self.enterContext(patch.object(publisher.time, 'sleep'))
+
+    def run_page(self):
+        publisher.page_release(self.gh, self.args)
+
+    def test_published_page_then_byte_identical_install_files(self):
+        self.prepare()
+        self.args.publish = True
+        self.run_page()
+        creations = [kw['body'] for method, url, kw in self.writes
+                     if method == 'POST' and url.endswith('/releases')]
+        page, files = creations
+        self.assertEqual(page['tag_name'], '0.7.0.5')
+        self.assertEqual(page['target_commitish'], 'version-commit')
+        self.assertNotIn('old download table', page['body'])
+        self.assertIn('## Changes\n\nVersion notes.', page['body'])
+        for name in (publisher.WINDOWS_NAME, publisher.LINUX_NAME):
+            self.assertIn('/download/0.7.0.5/' + name, page['body'])
+        self.assertEqual(files['tag_name'], 'v0.7.0.5')
+        self.assertEqual(files['name'], 'TpF2 Multiplayer 0.7.0.5 (install files)')
+        self.assertTrue(files['body'].endswith(self.notes))
+        uploads = {url.split('?name=')[1]: kw['data'] for _, url, kw in self.writes if '?name=' in url}
+        self.assertEqual(len(uploads), 10)
+        for name, data in self.payload.items():
+            self.assertEqual(uploads[name], data)
+        publications = [kw['body'] for method, _, kw in self.writes
+                        if method == 'PATCH' and 'draft' in kw['body']]
+        self.assertEqual(publications, [{'draft': False, 'make_latest': 'true'},
+                                       {'draft': False, 'make_latest': 'false'}])
+        deletion = next(i for i, (method, _, _) in enumerate(self.writes) if method == 'DELETE')
+        self.assertEqual(self.writes[deletion - 1][2]['body'], publications[0])
+
+    def test_annotated_tag_and_default_draft(self):
+        self.prepare()
+        self.ref_type = 'tag'
+        self.run_page()
+        self.assertEqual(self.writes[0][2]['body']['target_commitish'], 'version-commit')
+        self.assertEqual(len(self.writes), 3)
+        self.assertEqual(self.mod['body'], self.notes)
+
+    def test_prerelease_never_latest(self):
+        self.prepare()
+        self.mod['prerelease'] = True
+        self.args.publish = True
+        self.run_page()
+        for _, _, kw in self.writes:
+            if 'make_latest' in kw.get('body', {}):
+                self.assertEqual(kw['body']['make_latest'], 'false')
+
+    def test_bad_native_digest_prevents_install_release_deletion(self):
+        self.prepare()
+        self.args.publish = True
+        self.blobs['tpf2mp-linux-0.7.0.5-native.run'] += b'corrupt'
+        with self.assertRaisesRegex(SystemExit, 'does not match its digest'):
+            self.run_page()
+        self.assertFalse(any(method == 'DELETE' for method, _, _ in self.writes))
+
+    def test_dry_run_only_records_suppressed_page_creation(self):
+        self.prepare()
+        self.args.publish = self.args.dry_run = True
+        self.run_page()
+        self.assertEqual(len(self.writes), 1)
+
+    def test_invalid_or_unpublished_source_and_published_page_are_rejected(self):
+        self.prepare()
+        for changes, page_tag, page in (({}, 'invalid', None), ({'draft': True}, 'v0.7.0.5', None),
+                ({'assets': []}, 'v0.7.0.5', None),
+                ({}, 'v0.7.0.5', dict(tag_name='0.7.0.5', draft=False))):
+            with self.subTest(changes=changes, page_tag=page_tag, page=page):
+                self.args.page_tag = page_tag
+                self.existing = [dict(self.mod, **changes)] + ([page] if page else [])
+                with self.assertRaises(SystemExit):
+                    self.run_page()
+                self.assertEqual(self.writes, [])
+
+
 if __name__ == "__main__":
     unittest.main()

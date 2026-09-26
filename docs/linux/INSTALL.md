@@ -73,7 +73,11 @@ From 0.7.0.6 onward, download `tpf2mp-linux-<version>-native.run` and
 The same install files also live on the mod repository's `v<version>` release.
 The `<version>` page (without `v`) carries the two launchers and is marked
 Latest; its `v<version>` install-files release is published afterward for older
-launchers. Releases through 0.7.0.5 keep their existing assets. Verify the `.run` entry in the checksum file before running it:
+launchers. Existing versions can also be migrated with the publisher's
+`page v<version>` command (upstream applied this to 0.7.0.5); their install
+assets stay on the same `v<version>` tag with unchanged bytes. See
+[the page-migration integration](UPSTREAM_dev_e2957841.md).
+Verify the `.run` entry in the checksum file before running it:
 
 ```sh
 sha256sum --check --ignore-missing tpf2mp-linux-<version>-native.sha256

@@ -55,7 +55,7 @@ It installs the mod, keeps it up to date and starts the game. Everyone in a sess
 
 The launcher downloads the install files from [tpf2-multiplayer-packages](https://github.com/silver2127/tpf2-multiplayer-packages/releases)
 (the release with the same tag); to install by hand, take `TpF2Multiplayer.msi` from there, close the game and
-run it. The mod repository also carries install files on `v<version>`; from 0.7.0.6,
+run it. The mod repository also carries install files on `v<version>`; for versions using the two-launcher layout,
 the Latest page is tagged `<version>` (without `v`) and carries the two launchers.
 
 The installer finds the game folder through Steam, keeps the game's `alut.dll` as `alut_real.dll` and puts
@@ -298,3 +298,7 @@ unported; native pager and alignment batching behavior is unchanged.
 The [dev `8978635d` integration](docs/linux/UPSTREAM_dev_8978635d.md) keeps
 launchers on the Latest `<version>` page and install files on `v<version>`
 and the packages repository. Native release version remains 0.7.0.5.
+
+The [dev `e2957841` integration](docs/linux/UPSTREAM_dev_e2957841.md) adds
+`page v<version>` to migrate an already published release to this layout,
+including 0.7.0.5, while preserving its install-file assets.

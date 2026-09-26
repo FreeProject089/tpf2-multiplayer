@@ -390,3 +390,8 @@ runtime/boot metadata and standalone collector credential masking.
 The [dev `01044521` integration](UPSTREAM_dev_01044521.md) expands the native public
 browser to twelve games per page and up to 48 games, and removes the legacy
 panel renderer. Closing a running resync leaves the game visible.
+
+The [release 0.7.0.4 integration](UPSTREAM_dev_e86d5552.md) advances the native package
+and shared lobby handshake to **0.7.0.4**. All peers, including dedicated
+servers, must update. This release stamps the previously integrated hot-join,
+menu and log fixes; existing native feature and live-validation limits remain.

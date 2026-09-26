@@ -339,6 +339,31 @@ def _joiner_bulk_listener(port, log):
 # it does to a Steam peer, and the joiner dials those, never the relay.
 MASTER_RELAY_ADDRS = set()
 
+# THE MASTER'S PIPE: the fallback for a SLOW transfer (2026-09-26, the user: "have
+# the relay act as a fallback for slow transfers"). A 200 MB save to a joiner in
+# through the master's UDP relay ran at 0.2-0.4 MB/s -- 10-15 minutes -- and the
+# host gave up twice. A transfer that is not on TCP after PIPE_AFTER seconds and
+# still has more than PIPE_MIN_LEFT seconds to go at its measured pace meets the
+# joiner at the master's TCP pipe (masterserver.py PIPE, bulk_tcp.pipe_connect):
+# both ends dial out, so NAT does not matter, and the stream is the usual bulk
+# stream, hash-checked at the end. UDP keeps going until the stream starts.
+MASTER_PIPE = [None]           # (ip, port) from the master's GET /pipe, or None
+PIPE_AFTER = 15.0
+PIPE_MIN_LEFT = 60.0
+PIPE_MIN_BYTES = 16 << 20      # small transfers finish before a pipe would pay off
+
+
+def _fetch_master_pipe(url, log):
+    """A thread: ask the master whether it offers the pipe."""
+    try:
+        r = _http_json(url.rstrip("/") + "/pipe")
+        ip, port = str(r.get("ip") or ""), r.get("port")
+        if ip and isinstance(port, int) and 0 < port < 65536:
+            MASTER_PIPE[0] = (ip, port)
+            log(f"[bulk] the master offers its TCP pipe for slow transfers (tcp/{port})")
+    except Exception:                                # noqa: BLE001 -- an older master has none: nothing changes
+        pass
+
 
 def _is_master_relay(addr):
     return isinstance(addr, tuple) and len(addr) >= 2 and (str(addr[0]), int(addr[1])) in MASTER_RELAY_ADDRS
@@ -1692,6 +1717,48 @@ class _HostSaveTransfer:
                  + ("Steam carries the rest" if len(ips) > 1 or steamtunnel.is_tunnel_addr(p.get('addr')) else "the upload runs over UDP")
                  + (f" [{redact('; '.join(errs))}]" if errs else ""))
 
+    def _maybe_pipe(self, addr, p, now):
+        """A slow transfer not on TCP: ask the joiner to meet us at the master's pipe (once)."""
+        pipe = MASTER_PIPE[0]
+        if (pipe is None or not self.tcp_token or p["tcp"] or p.get("pipe_tried")
+                or self.total_bytes < PIPE_MIN_BYTES or not p.get("ready_at") or now - p["ready_at"] < PIPE_AFTER):
+            return
+        done = min(p["base"] * self.chunk, self.total_bytes)
+        rate = done / max(now - p["ready_at"], 0.001)
+        left = (self.total_bytes - done) / rate if rate > 0 else float("inf")
+        if left < PIPE_MIN_LEFT:
+            return
+        p["pipe_tried"] = True
+        pair = os.urandom(16).hex()
+        self.log(f"[host] {p['name']}: {bulk_tcp.rate_text(done, now - p['ready_at'])} over "
+                 f"{'Steam' if steamtunnel.is_tunnel_addr(addr) else 'UDP'}, "
+                 + (f"~{left / 60:.0f} min to go" if left != float("inf") else "no progress yet")
+                 + " -- meeting it at the master's TCP pipe")
+        _send_data(self.sock, addr, {"t": "bulk_pipe", "sid": self.sid, "pair": pair, "ip": pipe[0], "port": pipe[1]})
+        threading.Thread(target=self._pipe_serve, args=(p, pair, pipe), name="bulk-pipe", daemon=True).start()
+
+    def _pipe_serve(self, p, pair, pipe):
+        """A thread: wait at the master's pipe for the joiner, then stream as over a direct connection."""
+        errs = []
+        sock = bulk_tcp.pipe_connect(pipe[0], pipe[1], pair, "H", errors=errs)
+        if sock is None:
+            self.log(f"[host] {p['name']}: no stream through the master's pipe -- the {self.kind} stays where it is"
+                     + (f" [{redact('; '.join(errs))}]" if errs else ""))
+            return
+        try:
+            name = bulk_tcp.accept_hello(sock, "recv", self.sid, self.tcp_token)
+        except OSError:
+            name = None
+        if name is None or p["state"] != "active":
+            self.log(f"[host] {p['name']}: the master's pipe opened, but no valid hello came through it")
+            try:
+                sock.close()
+            except OSError:
+                pass
+            return
+        self.log(f"[host] {p['name']} meets us at the master's TCP pipe")
+        self._tcp_stream(sock, p)
+
     def _tcp_stream(self, sock, p):
         with self._tcp_lock:                    # both ends may dial: the first stream wins
             if p["tcp"]:
@@ -1790,6 +1857,7 @@ class _HostSaveTransfer:
             if self.chunk == CHUNK_STEAM:
                 p["last_advance"] = time.time()
             p["ready"] = True
+            p["ready_at"] = time.time()
             self.log(f"[host] {p['name']} ready for {self.kind}")
         # the receiver has a listener (the relay, for our upload): connect and stream
         port = msg.get("tcp_port")
@@ -1993,6 +2061,7 @@ class _HostSaveTransfer:
                 if p.get("tcp_status") != "failed":
                     p["tcp_status"] = "unavailable"
                 self.log(f"[host] {p['name']}: no TCP stream -- Steam carries the {self.kind}")
+            self._maybe_pipe(addr, p, now)
             if self.chunk == CHUNK_STEAM:
                 self._pump_steam(addr, p, now)
                 continue
@@ -2681,6 +2750,7 @@ class _ClientSaveReceiver:
         while not self._tcp_q.empty():
             self._tcp_q.get_nowait()
         tcp = msg.get("tcp") if BULK_TCP[0] and self.total_bytes > 0 else None
+        self._tcp_token = tcp["token"] if isinstance(tcp, dict) and isinstance(tcp.get("token"), str) else None
         if isinstance(tcp, dict) and isinstance(tcp.get("token"), str) and tcp["token"]:
             if isinstance(self.conn, _PeerConn):
                 # we are the relay taking the leader's upload: WE listen, it connects
@@ -2759,6 +2829,39 @@ class _ClientSaveReceiver:
     def _tcp_accepted(self, sock, addr, name):
         """ACCEPT THREAD HELPER (the relay): the leader connected to push its upload."""
         self._tcp_read(sock, self.sid)
+
+    def on_pipe(self, msg):
+        """The host asks to meet at the master's TCP pipe: its transfer to us is slow."""
+        sid, pair, ip, port = msg.get("sid"), msg.get("pair"), msg.get("ip"), msg.get("port")
+        token = getattr(self, "_tcp_token", None)
+        if (sid != self.sid or self.tcp_active or not token or self.complete or not isinstance(ip, str) or not ip
+                or not isinstance(port, int) or not 0 < port < 65536 or not isinstance(pair, str)
+                or len(pair) != 32 or any(c not in "0123456789abcdef" for c in pair)):
+            return
+        if getattr(self, "_pipe_sid", None) == sid:
+            return                                # asked once already
+        self._pipe_sid = sid
+        threading.Thread(target=self._pipe_pull, args=(ip, port, pair, sid, token), name="bulk-pipe", daemon=True).start()
+
+    def _pipe_pull(self, ip, port, pair, sid, token):
+        """A thread: dial the master's pipe, say the usual hello, read the stream."""
+        self.log(f"[client] the host's transfer is slow -- meeting it at the master's TCP pipe")
+        errs = []
+        sock = bulk_tcp.pipe_connect(ip, port, pair, "J", errors=errs)
+        if sock is None:
+            self.log("[client] no stream through the master's pipe -- the transfer stays where it is"
+                     + (f" [{redact('; '.join(errs))}]" if errs else ""))
+            return
+        try:
+            ok = sid == self.sid and bulk_tcp.say_hello(sock, "recv", sid, token, self.my_name)
+        except OSError:
+            ok = False
+        if not ok or not self._tcp_read(sock, sid):
+            self.log("[client] the master's pipe opened, but the host did not stream through it")
+            try:
+                sock.close()
+            except OSError:
+                pass
 
     def _tcp_read(self, sock, sid):
         # Both ends may dial simultaneously. The sender chooses one stream;
@@ -5700,6 +5803,9 @@ def run_client(conn, my_name, io, stop=None, host_gone_after=HOST_GONE_AFTER,
             return
         if recovery and recovery.message(m):
             return
+        if t == "bulk_pipe":
+            receiver.on_pipe(m)
+            return
         if t == "fbegin":
             if recovery and recovery.begin(m):
                 return
@@ -6091,6 +6197,7 @@ def cmd_host(args):
     if rv_url:
         rendezvous = _RendezvousHost(rv_url, secret, args.password or "", _log, tunnel=tunnel)
         _log(f"[rendezvous] polling {rv_url} for joiners to punch toward")
+        threading.Thread(target=_fetch_master_pipe, args=(rv_url, _log), name="pipe-offer", daemon=True).start()
     try:
         if args.relay_only:
             _log("[host] RELAY-ONLY: no game here; the oldest joiner is the leader")

@@ -19,7 +19,7 @@ spec.loader.exec_module(publisher)
 class LauncherReleaseTest(unittest.TestCase):
     def setUp(self):
         self.args = SimpleNamespace(windows_launcher=None, linux_launcher=None,
-                                    no_linux_launcher=False, publish=False, dry_run=False, replace_page=False)
+                                    no_linux_launcher=False, publish=False, dry_run=False)
         self.blobs = {"launcher-Setup.exe": b"windows fixture", "launcher.AppImage": b"linux fixture"}
         self.blobs["SHA256SUMS.txt"] = "".join(
             f"{hashlib.sha256(data).hexdigest()}  {name}\n"
@@ -49,7 +49,8 @@ class LauncherReleaseTest(unittest.TestCase):
             return None
         if method == "POST" and url.endswith("/releases"):
             return {**kw["body"], "id": 42, "assets": [],
-                    "upload_url": "https://example.invalid/upload{?name}"}
+                    "upload_url": "https://example.invalid/upload{?name}",
+                    "html_url": "https://example.invalid/release"}
 
     def run_release(self):
         publisher.launcher_release(self.gh, self.args)
@@ -74,6 +75,13 @@ class LauncherReleaseTest(unittest.TestCase):
         self.run_release()
         self.assertEqual(self.writes[-1], ("PATCH", f"/repos/{publisher.REPO}/releases/42",
                          {"body": {"draft": False, "make_latest": "false"}}))
+
+    def test_launcher_update_leaves_existing_mod_release_intact(self):
+        self.existing = [dict(tag_name='v0.7.0.5', draft=False, id=7)]
+        self.args.publish = True
+        self.run_release()
+        self.assertFalse(any(method == 'DELETE' or url.endswith('/releases/7')
+                             for method, url, _ in self.writes))
 
     def test_bad_linux_checksum_stops_before_writes(self):
         self.blobs["launcher.AppImage"] += b"damaged"
@@ -137,7 +145,8 @@ class VersionReleaseTest(unittest.TestCase):
             (self.root / name).write_bytes(name.encode())
         self.mod = self.release(1, 'v' + self.version)
         self.mod['body'] = '| **Linux / Steam Deck** | https://example.invalid/releases/download/v0.7.0.6/' + publisher.LINUX_NAME + ' |'
-        self.mod['assets'] = [{'id': 90, 'name': publisher.LINUX_NAME}]
+        self.mod['assets'] = [{'id': 90, 'name': publisher.LINUX_NAME},
+                              {'id': 91, 'name': 'obsolete-payload.zip'}]
         self.releases = [self.mod]
         self.writes = []
         self.gh = SimpleNamespace(call=self.call, write=self.write, get=lambda url: None)
@@ -182,7 +191,7 @@ class VersionReleaseTest(unittest.TestCase):
         with patch.object(publisher.sys, 'argv', argv):
             publisher.main()
 
-    def test_native_files_on_both_install_releases_and_page_published_first(self):
+    def test_native_files_on_both_install_releases_and_page_published_last(self):
         self.run_version('--publish')
         uploads = [(url, kw['data']) for method, url, kw in self.writes if '?name=' in url]
         self.assertEqual(len(uploads), 18)  # Eight files twice, plus two launchers.
@@ -193,21 +202,20 @@ class VersionReleaseTest(unittest.TestCase):
         published = [(url, kw['body']) for method, url, kw in self.writes
                      if method == 'PATCH' and 'draft' in kw['body']]
         self.assertEqual([body for _, body in published], [
-            {'draft': False, 'make_latest': 'true'}, {'draft': False, 'make_latest': 'false'}])
+            {'draft': False, 'make_latest': 'false'}, {'draft': False, 'make_latest': 'true'}])
         self.assertTrue(published[-1][0].endswith('/1'))
-        self.sleep.assert_called_once_with(2)
+        self.sleep.assert_not_called()
         page = next(kw['body'] for method, url, kw in self.writes
                     if method == 'POST' and url == f'/repos/{publisher.REPO}/releases')
         self.assertEqual(page['tag_name'], self.version)
-        self.assertIn('/download/0.7.0.6/', page['body'])
+        self.assertIn('/releases/tag/v0.7.0.6', page['body'])
         self.assertEqual(page['target_commitish'], 'fixture-commit')
-        tag = next(kw['body'] for method, url, kw in self.writes
-                   if method == 'POST' and url.endswith('/git/tags'))
-        self.assertEqual(tag['object'], 'fixture-commit')
-        self.assertEqual(tag['tag'], self.version)
-        self.assertIn(('POST', f'/repos/{publisher.REPO}/git/refs',
-                       {'body': {'ref': 'refs/tags/' + self.version, 'sha': 'page-tag-object'}}), self.writes)
+        self.assertFalse(any('/git/' in url for _, url, _ in self.writes))
+        # Existing launcher is replaced, but install payloads never go to the page.
         self.assertIn(('DELETE', f'/repos/{publisher.REPO}/releases/assets/90', {}), self.writes)
+        page_uploads = [url.split('?name=')[1] for url, _ in uploads if '/upload/1?' in url]
+        self.assertEqual(set(page_uploads), {publisher.WINDOWS_NAME, publisher.LINUX_NAME})
+        self.assertIn(('DELETE', f'/repos/{publisher.REPO}/releases/assets/91', {}), self.writes)
 
     def test_prerelease_page_is_not_latest(self):
         self.mod['prerelease'] = True
@@ -228,9 +236,7 @@ class VersionReleaseTest(unittest.TestCase):
         self.assertEqual(self.writes, [])
 
     def test_published_page_is_protected(self):
-        page = self.release(2, self.version)
-        page['draft'] = False
-        self.releases.append(page)
+        self.mod['draft'] = False
         with self.assertRaisesRegex(SystemExit, 'already published'):
             self.run_version('--publish')
         self.assertEqual(self.writes, [])
@@ -238,144 +244,97 @@ class VersionReleaseTest(unittest.TestCase):
     def test_windows_only_page_links_proton_fallback(self):
         self.run_version('--no-linux-launcher')
         page = next(kw['body'] for method, url, kw in self.writes
-                    if method == 'POST' and url == f'/repos/{publisher.REPO}/releases')
+                    if method == 'PATCH' and url.endswith('/releases/1'))
         self.assertNotIn(publisher.LINUX_NAME, page['body'])
         self.assertIn(f'{publisher.PACKAGES_REPO}/releases/download/v0.7.0.6/install_proton.sh', page['body'])
 
 
-class RepublishTest(unittest.TestCase):
-    def setUp(self):
-        self.data = b'native installer fixture'
-        self.rel = dict(id=7, tag_name='v0.7.0.5', name='original name', body='original notes',
-                        draft=False, prerelease=False, published_at='2026-09-25T12:00:00Z', assets=[
-                            dict(name='native.run', browser_download_url='https://example.invalid/native.run',
-                                 digest='sha256:' + hashlib.sha256(self.data).hexdigest())])
-        self.calls = []
-        self.gh = SimpleNamespace(call=self.call, write=lambda what, *args, **kw: self.call(*args, **kw))
-        self.enterContext(patch.object(publisher.urllib.request, 'urlopen',
-                                      side_effect=lambda *args, **kw: io.BytesIO(self.data)))
-        self.enterContext(contextlib.redirect_stdout(io.StringIO()))
-
-    def call(self, method, url, **kw):
-        self.calls.append((method, url, kw))
-        if method == 'POST' and url.endswith('/releases'):
-            return dict(id=8, upload_url='https://example.invalid/upload', assets=[], **kw['body'])
-
-    def test_recreation_preserves_metadata_and_bytes_without_touching_tag(self):
-        publisher.republish(self.gh, self.rel, False)
-        self.assertEqual([c[0] for c in self.calls], ['DELETE', 'POST', 'POST', 'PATCH'])
-        body = self.calls[1][2]['body']
-        for key in ('tag_name', 'name', 'body', 'prerelease'):
-            self.assertEqual(body[key], self.rel[key])
-        self.assertTrue(body['draft'])
-        self.assertEqual(self.calls[2][2]['data'], self.data)
-        self.assertEqual(self.calls[-1][2]['body'], {'draft': False, 'make_latest': 'false'})
-        self.assertTrue(self.calls[0][1].endswith('/releases/7'))
-
-    def test_corrupt_download_stops_before_deletion(self):
-        self.data += b'corrupt'
-        with self.assertRaisesRegex(SystemExit, 'does not match'):
-            publisher.republish(self.gh, self.rel, False)
-        self.assertEqual(self.calls, [])
-
-    def test_dry_run_never_deletes_or_uploads(self):
-        publisher.republish(self.gh, self.rel, True)
-        self.assertEqual(self.calls, [])
-
-    def test_selection_excludes_pages_launchers_drafts_and_prereleases(self):
-        releases = [self.rel] + [dict(self.rel, published_at='2026-09-26T12:00:00Z', **changes)
-                                for changes in ({'tag_name': '0.7.0.6'}, {'tag_name': 'launcher-v1.3.0'},
-                                                {'draft': True}, {'prerelease': True})]
-        gh = SimpleNamespace(call=lambda *args: releases)
-        self.assertIs(publisher.newest_install_files(gh), self.rel)
-
-    def test_launcher_publish_republishes_install_files_last(self):
-        args = SimpleNamespace(no_linux_launcher=False, dry_run=False, publish=True)
-        args.launcher_release = dict(tag_name='v1.3.0', html_url='https://example.invalid/launcher')
-        with patch.object(publisher, 'launchers', return_value=[]), \
-             patch.object(publisher, 'find_release', return_value=None), \
-             patch.object(publisher, 'newest_install_files', return_value=self.rel):
-            publisher.launcher_release(self.gh, args)
-        self.assertEqual([c[0] for c in self.calls], ['POST', 'PATCH', 'DELETE', 'POST', 'POST', 'PATCH'])
-        self.assertEqual(self.calls[0][2]['body']['tag_name'], 'launcher-v1.3.0')
-        self.assertEqual(self.calls[3][2]['body']['tag_name'], 'v0.7.0.5')
-
-
-class PageReleaseTest(unittest.TestCase):
-    """Migrate a published version using only fixture assets and a fake service."""
-    setUp = LauncherReleaseTest.setUp
-    def write(self, what, method, url, **kw):
-        result = LauncherReleaseTest.write(self, what, method, url, **kw)
-        if not self.args.dry_run and method == 'POST' and url.endswith('/git/tags'):
-            return {'sha': 'page-tag-object'}
-        return result
-
-    def call(self, method, url, **kw):
-        if method != 'GET':
-            return self.write('fixture mutation', method, url, **kw)
-        if url.endswith('/git/ref/tags/v0.7.0.5'):
-            return {'object': {'type': self.ref_type, 'sha': 'tag-object' if self.ref_type == 'tag' else 'version-commit'}}
-        if url.endswith('/git/tags/tag-object'):
-            return {'object': {'type': 'commit', 'sha': 'version-commit'}}
-        return LauncherReleaseTest.call(self, method, url)
-
+class PageReleaseTest(LauncherReleaseTest):
     def prepare(self):
         self.gh.get = lambda url: None
         self.args.page_tag = 'v0.7.0.5'
-        self.ref_type = 'commit'
-        self.notes = '## Download\n\nold download table\n\n## Changes\n\nVersion notes.\n'
-        self.mod = dict(id=7, tag_name=self.args.page_tag, draft=False, prerelease=False,
-                        name='TpF2 Multiplayer 0.7.0.5', body=self.notes,
-                        html_url='https://example.invalid/v0.7.0.5', assets=[])
+        self.notes = '## Download\n\nold table\n\n## Changes\n\nVersion notes.\n'
+        self.mod = VersionReleaseTest.release(7, self.args.page_tag)
+        self.mod.update(draft=False, body=self.notes)
         self.payload = {name: ('fixture ' + name).encode() for name in (
             *publisher.PAYLOAD, 'tpf2mp-linux-0.7.0.5-native.run',
             'tpf2mp-linux-0.7.0.5-native.tar.gz', 'tpf2mp-linux-0.7.0.5-native.sha256')}
         self.blobs.update(self.payload)
-        self.mod['assets'] = [dict(name=name, browser_download_url=name,
+        self.mod['assets'] = [dict(id=100+i, name=name, browser_download_url=name,
                                   digest='sha256:' + hashlib.sha256(data).hexdigest())
-                              for name, data in self.payload.items()]
+                              for i, (name, data) in enumerate(self.payload.items())]
         self.existing = [self.mod]
-        self.enterContext(patch.object(publisher.time, 'sleep'))
+
+    def call(self, method, url):
+        if url.endswith('/git/ref/tags/v0.7.0.5'):
+            return {'object': {'type': 'commit', 'sha': 'version-commit'}}
+        return super().call(method, url)
 
     def run_page(self):
         publisher.page_release(self.gh, self.args)
 
-    def test_published_page_then_byte_identical_install_files(self):
+    def test_migration_copies_all_payloads_before_removing_original_assets(self):
         self.prepare()
         self.args.publish = True
         self.run_page()
         creations = [kw['body'] for method, url, kw in self.writes
                      if method == 'POST' and url.endswith('/releases')]
-        page, files = creations
-        self.assertEqual(page['tag_name'], '0.7.0.5')
-        self.assertEqual(page['target_commitish'], 'version-commit')
-        self.assertNotIn('old download table', page['body'])
-        self.assertIn('## Changes\n\nVersion notes.', page['body'])
-        for name in (publisher.WINDOWS_NAME, publisher.LINUX_NAME):
-            self.assertIn('/download/0.7.0.5/' + name, page['body'])
-        self.assertEqual(files['tag_name'], 'v0.7.0.5')
-        self.assertEqual(files['name'], 'TpF2 Multiplayer 0.7.0.5 (install files)')
-        self.assertTrue(files['body'].endswith(self.notes))
-        uploads = {url.split('?name=')[1]: kw['data'] for _, url, kw in self.writes if '?name=' in url}
-        self.assertEqual(len(uploads), 10)
+        self.assertEqual([body['tag_name'] for body in creations], ['v0.7.0.5', '0.7.0.5'])
+        self.assertEqual(creations[1]['target_commitish'], 'version-commit')
+        uploads = [(url.split('?name=')[1], kw['data']) for _, url, kw in self.writes if '?name=' in url]
         for name, data in self.payload.items():
-            self.assertEqual(uploads[name], data)
+            self.assertEqual([blob for n, blob in uploads if n == name], [data, data])
+        first_delete = next(i for i, (method, _, _) in enumerate(self.writes) if method == 'DELETE')
+        self.assertEqual(sum('?name=' in url for _, url, _ in self.writes[:first_delete]), 18)
+        self.assertTrue(all('/releases/assets/' in url for method, url, _ in self.writes if method == 'DELETE'))
+        final = self.writes[-1]
+        self.assertTrue(final[1].endswith('/releases/7'))
+        self.assertEqual(final[2]['body']['make_latest'], 'true')
+        self.assertEqual(final[2]['body']['name'], '0.7.0.5')
+        body = final[2]['body']['body']
+        self.assertNotIn('old table', body)
+        self.assertTrue(body.endswith('## Changes\n\nVersion notes.\n'))
+        for name in (publisher.WINDOWS_NAME, publisher.LINUX_NAME):
+            self.assertIn('/download/v0.7.0.5/' + name, body)
         publications = [kw['body'] for method, _, kw in self.writes
                         if method == 'PATCH' and 'draft' in kw['body']]
-        self.assertEqual(publications, [{'draft': False, 'make_latest': 'true'},
-                                       {'draft': False, 'make_latest': 'false'}])
-        deletion = next(i for i, (method, _, _) in enumerate(self.writes) if method == 'DELETE')
-        self.assertEqual(self.writes[deletion - 1][2]['body'], publications[0])
+        self.assertEqual(publications, [{'draft': False, 'make_latest': 'false'}])
 
-    def test_annotated_tag_and_default_draft(self):
+    def test_corrupt_native_digest_prevents_writes(self):
         self.prepare()
-        self.ref_type = 'tag'
-        self.run_page()
-        self.assertEqual(self.writes[2][2]['body']['target_commitish'], 'version-commit')
-        self.assertEqual(len(self.writes), 5)
-        self.assertEqual(self.mod['body'], self.notes)
+        self.blobs['tpf2mp-linux-0.7.0.5-native.run'] += b'corrupt'
+        with self.assertRaisesRegex(SystemExit, 'does not match its digest'):
+            self.run_page()
+        self.assertEqual(self.writes, [])
 
-    def test_prerelease_never_latest(self):
+    def test_failed_copy_upload_prevents_original_asset_removal(self):
+        self.prepare()
+        original = self.gh.write
+        copies = 0
+        def fail_upload(what, method, url, **kw):
+            nonlocal copies
+            if '?name=TpF2Multiplayer.msi' in url:
+                copies += 1
+                if copies == 2:
+                    raise OSError('fixture upload failure')
+            return original(what, method, url, **kw)
+        self.gh.write = fail_upload
+        with self.assertRaisesRegex(OSError, 'fixture upload failure'):
+            self.run_page()
+        self.assertFalse(any(method == 'DELETE' for method, _, _ in self.writes))
+
+    def test_migrated_page_uses_existing_update_files(self):
+        self.prepare()
+        self.mod['assets'] = []
+        copy = VersionReleaseTest.release(8, '0.7.0.5')
+        copy.update(draft=False, assets=[{'name': 'TpF2Multiplayer.msi'}])
+        self.existing.append(copy)
+        self.run_page()
+        self.assertFalse(any(method == 'DELETE' or url.endswith('/releases')
+                             for method, url, _ in self.writes))
+        self.assertEqual(sum('?name=' in url for _, url, _ in self.writes), 2)
+
+    def test_prerelease_page_never_latest(self):
         self.prepare()
         self.mod['prerelease'] = True
         self.args.publish = True
@@ -384,85 +343,45 @@ class PageReleaseTest(unittest.TestCase):
             if 'make_latest' in kw.get('body', {}):
                 self.assertEqual(kw['body']['make_latest'], 'false')
 
-    def test_bad_native_digest_prevents_install_release_deletion(self):
-        self.prepare()
-        self.args.publish = True
-        self.blobs['tpf2mp-linux-0.7.0.5-native.run'] += b'corrupt'
-        with self.assertRaisesRegex(SystemExit, 'does not match its digest'):
-            self.run_page()
-        self.assertFalse(any(method == 'DELETE' for method, _, _ in self.writes))
-
-    def test_dry_run_records_suppressed_tag_and_page_creation(self):
-        self.prepare()
-        self.args.publish = self.args.dry_run = True
-        self.run_page()
-        self.assertEqual(len(self.writes), 2)
-
-    def test_replace_page_strips_previous_note_and_preserves_source_title(self):
-        self.prepare()
-        self.args.replace_page = self.args.publish = True
-        self.mod['name'] = 'Custom version title'
-        self.mod['body'] = 'The install files of **previous page**, get its launcher.\n\n' + self.notes
-        self.existing.append(dict(id=8, tag_name='0.7.0.5', draft=False))
-        self.run_page()
-        self.assertEqual(self.writes[0], ('DELETE', f'/repos/{publisher.REPO}/releases/8', {}))
-        page, files = [kw['body'] for method, url, kw in self.writes
-                       if method == 'POST' and url.endswith('/releases')]
-        self.assertEqual(page['name'], 'Custom version title')
-        self.assertNotIn('The install files of ', page['body'])
-        self.assertEqual(files['body'].count('The install files of '), 1)
-        self.assertTrue(files['body'].endswith(self.notes))
-        self.assertNotIn('previous page', files['body'])
-
-    def test_page_cli_accepts_replace_without_linux_payload(self):
-        self.prepare()
-        with patch.object(publisher.sys, 'argv',
-                          ['publish_release.py', 'page', 'v0.7.0.5', '--replace-page']), \
-             patch.object(publisher, 'token', return_value='offline'), \
-             patch.object(publisher, 'GitHub', return_value=self.gh), \
-             patch.object(publisher, 'page_release') as run:
-            publisher.main()
-        self.assertTrue(run.call_args.args[1].replace_page)
-
-    def test_lightweight_page_tag_is_replaced_before_page_creation(self):
-        self.prepare()
-        self.gh.get = lambda url: {'object': {'type': 'commit', 'sha': 'old-commit'}}
-        self.run_page()
-        self.assertEqual(self.writes[0], ('DELETE', f'/repos/{publisher.REPO}/git/refs/tags/0.7.0.5', {}))
-        tag = self.writes[1][2]['body']
-        self.assertEqual(tag['object'], 'version-commit')
-        self.assertEqual(tag['type'], 'commit')
-        self.assertRegex(tag['tagger']['date'], r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$')
-        self.assertEqual(self.writes[2][2]['body'],
-                         {'ref': 'refs/tags/0.7.0.5', 'sha': 'page-tag-object'})
-        self.assertEqual(self.writes[3][2]['body']['tag_name'], '0.7.0.5')
-
-    def test_existing_annotated_page_tag_is_retained(self):
-        self.prepare()
-        self.gh.get = lambda url: {'object': {'type': 'tag', 'sha': 'existing-tag'}}
-        self.run_page()
-        self.assertFalse(any('/git/' in url for _, url, _ in self.writes))
-
-    def test_dry_run_still_requires_replace_for_published_page(self):
-        self.prepare()
-        self.args.dry_run = True
-        self.existing.append(dict(id=8, tag_name='0.7.0.5', draft=False))
-        with self.assertRaisesRegex(SystemExit, '--replace-page'):
-            self.run_page()
-        self.assertEqual(self.writes, [])
-
-    def test_invalid_or_unpublished_source_and_published_page_are_rejected(self):
-        self.prepare()
-        for changes, page_tag, page in (({}, 'invalid', None), ({'draft': True}, 'v0.7.0.5', None),
-                ({'assets': []}, 'v0.7.0.5', None),
-                ({}, 'v0.7.0.5', dict(tag_name='0.7.0.5', draft=False))):
-            with self.subTest(changes=changes, page_tag=page_tag, page=page):
-                self.args.page_tag = page_tag
-                self.existing = [dict(self.mod, **changes)] + ([page] if page else [])
+    def test_invalid_unpublished_or_missing_payload_rejected(self):
+        for tag, draft, assets in [('invalid', False, True), ('v0.7.0.5', True, True),
+                                    ('v0.7.0.5', False, False)]:
+            with self.subTest(tag=tag, draft=draft, assets=assets):
+                self.prepare()
+                self.args.page_tag = tag
+                self.mod['draft'] = draft
+                if not assets:
+                    self.mod['assets'] = []
                 with self.assertRaises(SystemExit):
                     self.run_page()
                 self.assertEqual(self.writes, [])
 
+    def test_page_cli_needs_no_linux_directory(self):
+        with patch.object(publisher.sys, 'argv', ['publish_release.py', 'page', 'v0.7.0.5']), \
+             patch.object(publisher, 'token', return_value='offline'), \
+             patch.object(publisher, 'GitHub', return_value=self.gh), \
+             patch.object(publisher, 'page_release') as run:
+            publisher.main()
+        self.assertEqual(run.call_args.args[1].page_tag, 'v0.7.0.5')
 
-if __name__ == "__main__":
+    def test_dry_run_suppresses_upload_and_delete_calls(self):
+        self.prepare()
+        self.args.dry_run = self.args.publish = True
+        # Use the real dry-run writer; any accidental real call fails immediately.
+        gh = publisher.GitHub('offline', True)
+        gh.call = self.call
+        gh.get = lambda url: None
+        with patch.object(gh, 'call', wraps=self.call) as calls:
+            publisher.page_release(gh, self.args)
+        self.assertTrue(all(call.args[0] == 'GET' for call in calls.call_args_list))
+        self.assertEqual(self.writes, [])
+
+    def test_previous_note_removed(self):
+        self.prepare()
+        self.mod['body'] = 'The install files of **previous page**.\n\n' + self.notes
+        self.run_page()
+        self.assertNotIn('previous page', self.writes[-1][2]['body']['body'])
+
+
+if __name__ == '__main__':
     unittest.main()

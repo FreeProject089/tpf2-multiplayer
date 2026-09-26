@@ -70,15 +70,13 @@ with removal shown in `--dry-run`.
 From 0.7.0.6 onward, download `tpf2mp-linux-<version>-native.run` and
 `tpf2mp-linux-<version>-native.sha256` from the matching tag in
 [tpf2-multiplayer-packages](https://github.com/silver2127/tpf2-multiplayer-packages/releases).
-The same install files also live on the mod repository's `v<version>` release.
-The `<version>` page (without `v`) carries the two launchers and is marked
-Latest; its `v<version>` install-files release is published afterward for older
-launchers. Existing versions can also be migrated with the publisher's
-`page v<version>` command (upstream applied this to 0.7.0.5); their install
-assets stay on the same `v<version>` tag with unchanged bytes. See
-[the page-migration integration](UPSTREAM_dev_e2957841.md).
-Page recreation now requires `--replace-page`, including dry runs; see
-[the publisher follow-up](UPSTREAM_dev_9abb2af1.md).
+The same install files also live on the mod repository's `<version>` release
+(without `v`). The `v<version>` page carries the two launchers and is marked
+Latest. Existing versions can be migrated with `page v<version>` (upstream
+applied this to 0.7.0.5): install files are copied to the packages repository
+and `<version>` before being removed from `v<version>`. `--replace-page` is
+no longer supported. Launchers up to 1.2.0 must be updated first, since they
+expect the MSI on `v<version>`. See [the current release layout](UPSTREAM_dev_8e0a0c00.md).
 Verify the `.run` entry in the checksum file before running it:
 
 ```sh
@@ -285,11 +283,10 @@ See [the release-layout integration](UPSTREAM_dev_4e1e486c.md).
 Launcher-only updates use `python3 tools/publish_release.py launcher`
 (default: draft; `--publish` publishes). They need no `--linux-dir` and use
 `launcher-v<version>` tags with `make_latest=false`; Latest remains the
-`<version>` launcher page. The publisher then deletes and re-creates the newest
-stable `v<version>` release with its downloaded install files, so older launchers
-still select it. Mod releases require `--linux-dir`, upload native files to both
-install-file releases, and publish the launcher page before `v<version>`.
-See [the two-release integration](UPSTREAM_dev_8978635d.md).
+`v<version>` launcher page. Launcher-only updates no longer delete or re-create
+a mod release. Mod releases require `--linux-dir`, upload native files to both
+install-file releases, and publish `<version>` before the `v<version>` launcher
+page. See [the release-layout integration](UPSTREAM_dev_8e0a0c00.md).
 
 The version defaults to `installer/VERSION`. See `RESUME_STATUS.md` in the source tree for implementation coverage and remaining runtime validation; packaging success alone does not establish multiplayer parity.
 

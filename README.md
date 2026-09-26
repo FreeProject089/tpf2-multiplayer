@@ -55,8 +55,9 @@ It installs the mod, keeps it up to date and starts the game. Everyone in a sess
 
 The launcher downloads the install files from [tpf2-multiplayer-packages](https://github.com/silver2127/tpf2-multiplayer-packages/releases)
 (the release with the same tag); to install by hand, take `TpF2Multiplayer.msi` from there, close the game and
-run it. The mod repository also carries install files on `v<version>`; for versions using the two-launcher layout,
-the Latest page is tagged `<version>` (without `v`) and carries the two launchers.
+run it. For versions using the two-launcher layout, the Latest page `v<version>` carries the two launchers;
+the mod repository also carries install files on `<version>` (without `v`). Launchers up to 1.2.0
+must be updated before installing these versions.
 
 The installer finds the game folder through Steam, keeps the game's `alut.dll` as `alut_real.dll` and puts
 the proxy in its place, adds the DLLs, the lobby (the `netpunch\` folder) and the **Transport Fever 2 Multiplayer** mod, and
@@ -75,7 +76,7 @@ game's own `alut.dll` is put back. Steam's "Verify integrity of game files" also
 Multiplayer entry until you run the MSI's **Repair**.
 
 Every release is built by GitHub Actions from the tagged source
-([`.github/workflows/build-msi.yml`](.github/workflows/build-msi.yml)); `SHA256SUMS.txt` in the matching packages release (also on the mod repository's `v<version>` release) lists the
+([`.github/workflows/build-msi.yml`](.github/workflows/build-msi.yml)); `SHA256SUMS.txt` in the matching packages release (also on the mod repository's `<version>` update-files release) lists the
 files it produced. The lobby is a Python program frozen with PyInstaller, and unsigned software of that kind is
 sometimes flagged by antivirus heuristics. The checksums and the build log are how to check that what you downloaded
 is what the source builds.
@@ -306,3 +307,8 @@ including 0.7.0.5, while preserving its install-file assets.
 The [dev `9abb2af1` integration](docs/linux/UPSTREAM_dev_9abb2af1.md) adds
 annotated launcher-page tags and explicit `--replace-page`, and removes an
 earlier migration note when recreating a page. Native version remains 0.7.0.5.
+
+The [dev `8e0a0c00` integration](docs/linux/UPSTREAM_dev_8e0a0c00.md) supersedes
+those earlier release layouts: launchers now stay on `v<version>` (Latest),
+with update files on `<version>` and the packages repository's `v<version>`.
+Launcher-only releases no longer recreate a mod release. Version remains 0.7.0.5.

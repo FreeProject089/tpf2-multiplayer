@@ -24,6 +24,15 @@ Wire: the connecting side writes one hello line, `TPF2BULK1 <role> <sid>
 the file bytes, in order from offset 0, nothing else. The token is 16
 random bytes the sender put in its fbegin (sealed like every control
 message), so an unrelated connection cannot claim or feed a transfer.
+
+THE MASTER'S PIPE (2026-09-26, the user: "have the relay act as a fallback for
+slow transfers"). When neither end can reach the other on TCP, both dial the
+master server's pipe port instead -- outbound, so any NAT lets them -- and
+say `TPF2PIPE1 <pair> <H|J>\\n`, pair being 32 hex digits the host drew and
+named to the joiner in a sealed message. The master answers `PAIRED\\n` to both
+once both are there and then copies bytes between them, nothing else. On
+the paired socket the joiner says the hello above and the host answers it
+(accept_hello), exactly as over a direct connection.
 """
 import socket
 import sys
@@ -31,6 +40,9 @@ import threading
 import time
 
 BULK_MAGIC = b"TPF2BULK1"
+PIPE_MAGIC = b"TPF2PIPE1"
+PIPE_PAIRED = b"PAIRED\n"
+PIPE_WAIT = 45.0             # how long one end waits at the master for the other
 HELLO_TIMEOUT = 5.0          # a connection that has not said hello by then is dropped
 CONNECT_TIMEOUT = 3.0        # a host not reachable on TCP costs this once, then UDP
 SEND_BLOCK = 1 << 20         # sendall() slices
@@ -186,6 +198,78 @@ def _why(e):
     if isinstance(e, ConnectionRefusedError):
         return "refused (nothing listening on that port)"
     return f"{type(e).__name__}: {e}"
+
+
+def _read_exact(c, n):
+    got = b""
+    while len(got) < n:
+        piece = c.recv(n - len(got))
+        if not piece:
+            break
+        got += piece
+    return got
+
+
+def say_hello(c, role, sid, token, name="", timeout=CONNECT_TIMEOUT):
+    """On a connected socket: the hello and the listener's OK. True when the
+    stream may start."""
+    c.sendall(BULK_MAGIC + b" " + role.encode() + b" " + str(int(sid)).encode() + b" " + str(token).encode()
+              + b" " + name.encode("utf-8", "replace")[:64] + b"\n")
+    c.settimeout(timeout)
+    ok = _read_exact(c, 3)           # never more: the stream follows at once (see bulk_connect)
+    if ok != b"OK\n":
+        return False
+    c.settimeout(None)
+    return True
+
+
+def accept_hello(c, role, sid, token, timeout=HELLO_TIMEOUT):
+    """The listener's side on a socket we did not accept (the master's pipe):
+    read one hello line, check role, sid and token, answer OK. The name it
+    gave, or None."""
+    c.settimeout(timeout)
+    line = b""
+    while not line.endswith(b"\n") and len(line) < 256:
+        piece = c.recv(1)            # byte by byte: nothing past the line is ours to take
+        if not piece:
+            return None
+        line += piece
+    parts = line.strip().split(b" ", 4)
+    try:
+        if len(parts) < 4 or parts[0] != BULK_MAGIC or parts[1].decode("ascii") != role \
+                or int(parts[2]) != int(sid) or parts[3].decode("ascii") != str(token):
+            return None
+    except (ValueError, UnicodeDecodeError):
+        return None
+    c.sendall(b"OK\n")
+    c.settimeout(None)
+    return parts[4].decode("utf-8", "replace") if len(parts) > 4 else ""
+
+
+def pipe_connect(host, port, pair, role, wait=PIPE_WAIT, errors=None):
+    """Dial the master's pipe and wait there for the other end. The paired
+    socket, or None."""
+    c = None
+    try:
+        c = socket.create_connection((host, int(port)), timeout=CONNECT_TIMEOUT)
+        c.sendall(PIPE_MAGIC + b" " + str(pair).encode("ascii") + b" " + role.encode("ascii") + b"\n")
+        c.settimeout(wait)
+        if _read_exact(c, len(PIPE_PAIRED)) != PIPE_PAIRED:
+            c.close()
+            if errors is not None:
+                errors.append(f"{host}: the other end never came to the pipe")
+            return None
+        c.settimeout(None)
+        return c
+    except (OSError, UnicodeEncodeError) as e:
+        if c is not None:
+            try:
+                c.close()
+            except OSError:
+                pass
+        if errors is not None:
+            errors.append(f"{host}: {_why(e) if not isinstance(e, socket.timeout) else 'the other end never came to the pipe'}")
+        return None
 
 
 def bulk_connect(host, port, role, sid, token, name="", timeout=CONNECT_TIMEOUT, errors=None):

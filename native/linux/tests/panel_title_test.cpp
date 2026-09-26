@@ -5,11 +5,13 @@ static bool saving=false;
 bool SavingNow(){return saving;}
 }
 static std::string recoveryAction;
+static bool bridgeLoaded = true;
 namespace lobby {
+const char* BridgeProblem(){return bridgeLoaded?nullptr:"Multiplayer unavailable: tpf2_bridge_mp.so not loaded.";}
 void Snapshot(View* v) { *v=panel::P().view; }
 bool AutoCopyPending(){return false;} bool TakeAutoCopy(std::string*){return false;}
 bool CapturesTyping(){return true;}
-bool Start(const StartRequest&,std::string*){assert(false);return false;}
+bool Start(const StartRequest&,std::string* why){assert(!bridgeLoaded);*why=BridgeProblem();return false;}
 void Leave(){assert(false);} std::string SendChat(const std::string&){assert(false);return {};}
 std::string StartGame(){assert(false);return {};}
 void RefreshSaves(){} std::string SelectSave(const std::string&){return {};}
@@ -60,6 +62,17 @@ int main(int argc,char** argv) {
             fclose(f);
         }
     }
+    bridgeLoaded=false;P().joinCode="ABCDEFGH";
+    for(bool world:{false,true})for(int tab:{0,1}) {
+        P().view.inGame=world;g_titleTab=tab;g_uiState=1;RenderLocked(780,764);
+        assert(!Has(2)&&!Has(3)&&Has(4));
+    }
+    StartLobbyLocked(false,"");
+    assert(g_uiState==1 && P().status.find("tpf2_bridge_mp.so")!=std::string::npos);
+    StartLobbyLocked(true,"ABCDEFGH");assert(g_uiState==1);
+    P().status.clear();
+    bridgeLoaded=true;P().view.inGame=false;g_titleTab=0;
+    RenderLocked(780,764);assert(Has(3));P().joinCode.clear();
     int w,h;g_flagScale=5;LayoutLocked(1280,720,&w,&h);assert(w<=1280 && h<=720);
     g_flagScale=0;LayoutLocked(1920,1080,&w,&h);assert(w==780 && h==764);
     RenderLocked(w,h);assert(Has(110)&&Has(111)&&Has(8)&&!Has(14)&&!Has(3));

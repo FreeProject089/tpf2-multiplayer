@@ -392,3 +392,24 @@ Threads are refused by lowering the soft `RLIMIT_NPROC` to 1 around the call
 (`pthread_create` then fails with `EAGAIN` for a user with other processes).
 Renders of both pages are written as images next to each run and were looked at.
 Every scenario also runs under AddressSanitizer and UndefinedBehaviorSanitizer.
+
+## Bridge prerequisite (dev ba1fa26e)
+
+`lobby::BridgeProblem` walks glibc's loaded-object list with `dl_iterate_phdr`
+and requires the exact basename `tpf2_bridge_mp.so`, including `RTLD_LOCAL`
+objects. It never opens a library or trusts a stale bridge status file.
+The host/join setup page and in-world Host Session disable their launch
+actions and show an amber warning. `Start` refuses before changing lobby state
+or queuing work, including dedicated requests; the existing readiness check
+rechecks the bridge on the worker before launch and before sharing a save.
+
+Linux deliberately uses one accurate “not loaded” message for missing and
+failed-load cases; `boot.cpp` already records the attempted path and precise
+loader error in `tpf2_proxy.log`. The menu logs the refusal once. This is a
+module-presence check, as on Windows, not a bridge connectivity/health check.
+
+The `lobby_ready` CTest loads a constructor-free fixture named
+`tpf2_bridge_mp.so` with `RTLD_LOCAL`, unloads it and checks presence again.
+Host/join/dedicated refusals leave the model and request queue unchanged.
+`panel_title` checks disabled hit targets in both title and world setup and
+status propagation for direct starts; its bridge result is stubbed.

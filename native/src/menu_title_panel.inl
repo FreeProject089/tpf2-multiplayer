@@ -159,8 +159,10 @@ static void titleSetup(int w,int h)
         mwCheck(pad,S(221),L"Auto-accept mod downloads",g_flagShareMods==1,19);
     }
     titleAction(pad,h-S(68),S(80),L"Back",4);
-    titleAction(w-pad-S(150),h-S(68),S(150),g_titleTab?L"Create game":L"Join game",g_titleTab?2:3,g_titleTab || g_joinCode[0]);
-    titleStatus(w,h);
+    const char* bridgeWhy=BridgeProblem();
+    titleAction(w-pad-S(150),h-S(68),S(150),g_titleTab?L"Create game":L"Join game",g_titleTab?2:3,(g_titleTab || g_joinCode[0]) && !bridgeWhy);
+    if(bridgeWhy) titleText(S(25),h-S(29),w-S(50),S(22),wideOf(bridgeWhy).c_str(),12,MW_WARN);
+    else titleStatus(w,h);
 }
 // Hosting an already loaded world has no join/save/start flow.
 static void sessionSetup(int w,int h)

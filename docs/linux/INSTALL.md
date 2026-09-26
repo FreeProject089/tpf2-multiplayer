@@ -410,3 +410,11 @@ the native package and shared lobby handshake to **0.7.0.5**, stamping the
 previously integrated relay address fix and TCP pipe fallback. All peers,
 including dedicated servers, must update. Existing native feature and
 live-validation limits remain unchanged.
+
+## Bridge missing or failed to load
+
+The [dev ba1fa26e integration](UPSTREAM_dev_ba1fa26e.md) disables hosting and
+joining when `tpf2_bridge_mp.so` is not loaded in the game process. The menu
+shows an amber explanation. Reinstall the native package and restart the game;
+check `data/tpf2_proxy.log` for the attempted path and the `dlopen` error.
+Having the file on disk or an old `tpf2_instance.txt` does not establish a load.

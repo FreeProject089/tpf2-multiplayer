@@ -261,3 +261,7 @@ the native package and shared lobby handshake to **0.7.0.5**, stamping the
 previously integrated relay address fix and TCP pipe fallback. All peers,
 including dedicated servers, must update. Existing native feature and
 live-validation limits remain unchanged.
+
+The [dev `ba1fa26e` integration](docs/linux/UPSTREAM_dev_ba1fa26e.md) refuses
+native hosting and joining unless `tpf2_bridge_mp.so` is loaded. The menu
+shows an amber explanation and directs players to the loader log.

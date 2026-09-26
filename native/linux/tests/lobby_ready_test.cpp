@@ -2,6 +2,7 @@
 // network requests, save reads or game calls may occur in these tests.
 #include "../src/lobby_linux.cpp"
 #include <cassert>
+#include <dlfcn.h>
 
 static std::string fixtureSaveDir;
 static bool allowPlace=false;
@@ -38,9 +39,21 @@ static void Write(const std::string& path, const std::string& body)
     assert(fclose(f)==0);
 }
 
-int main()
+int main(int argc, char** argv)
 {
     using namespace lobby;
+    assert(argc==2 && BridgeProblem());
+    // File exists but has not been loaded: every entry path still refuses.
+    assert(access(argv[1],R_OK)==0);
+    for(bool join:{false,true})for(bool dedicated:{false,true}) {
+        StartRequest r;r.join=join;r.dedicated=dedicated;r.name="Fixture";r.code="ABCDEFGH";
+        std::string why;const auto gen=S().m.gen;
+        assert(!Start(r,&why) && why.find("tpf2_bridge_mp.so")!=std::string::npos);
+        assert(!S().m.active && S().m.gen==gen && S().q.empty());
+    }
+    void* bridge=dlopen(argv[1],RTLD_NOW|RTLD_LOCAL);assert(bridge && !BridgeProblem());
+    assert(dlclose(bridge)==0 && BridgeProblem());
+    bridge=dlopen(argv[1],RTLD_NOW|RTLD_LOCAL);assert(bridge && !BridgeProblem());
     std::string list="{\"servers\":[";
     for(int i=0;i<60;++i) { if(i)list+=",";list+="{\"code\":\"fixture-"+std::to_string(i)+"\",\"name\":\"Game\"}"; }
     list+="]}";std::vector<PubRow> publicRows;std::string publicNote;

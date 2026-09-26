@@ -283,7 +283,10 @@ if(BUILD_TESTING)
   target_compile_options(test_lobby_ready PRIVATE -UNDEBUG -ffunction-sections -fdata-sections)
   target_link_options(test_lobby_ready PRIVATE -Wl,--gc-sections)
   target_link_libraries(test_lobby_ready PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
-  add_test(NAME lobby_ready COMMAND test_lobby_ready)
+  add_library(test_bridge_presence SHARED tests/bridge_fixture.cpp)
+  set_target_properties(test_bridge_presence PROPERTIES PREFIX "" OUTPUT_NAME "tpf2_bridge_mp"
+                        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bridge-fixture")
+  add_test(NAME lobby_ready COMMAND test_lobby_ready $<TARGET_FILE:test_bridge_presence>)
   add_executable(test_slice_proposal tests/slice_proposal_test.cpp src/slice/slice_proposal.cpp
                  src/slice/slice_core.cpp src/hook_posix.cpp)
   target_include_directories(test_slice_proposal PRIVATE ../src src)

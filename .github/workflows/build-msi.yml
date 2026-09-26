@@ -102,13 +102,33 @@ jobs:
       - name: Build the files zip (Proton / manual install)
         run: python tools\build_files_zip.py
 
+      - name: The launcher (latest tearded/tpf-multiplayer-launcher release)
+        # Setup.exe is taken from the launcher's latest release as published, checked
+        # against that release's SHA256SUMS.txt, and attached under a fixed name so the
+        # Download table can link it. The launcher itself only ever picks
+        # TpF2Multiplayer.msi from a release, so this extra asset does not affect it.
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP launcher
+          gh release download --repo tearded/tpf-multiplayer-launcher --dir $dir --pattern 'TPF2-Multiplayer-Launcher-*-Setup.exe' --pattern SHA256SUMS.txt
+          if ($LASTEXITCODE) { throw 'could not download the launcher release' }
+          $setup = @(Get-ChildItem $dir -Filter 'TPF2-Multiplayer-Launcher-*-Setup.exe')
+          if ($setup.Count -ne 1) { throw "expected one launcher Setup.exe, found $($setup.Count)" }
+          $want = (Get-Content (Join-Path $dir SHA256SUMS.txt) | Where-Object { $_ -match "^([0-9a-f]{64})  $([regex]::Escape($setup[0].Name))$" } | ForEach-Object { $Matches[1] })
+          if (-not $want) { throw "SHA256SUMS.txt does not list $($setup[0].Name)" }
+          if ((Get-FileHash $setup[0].FullName -Algorithm SHA256).Hash.ToLower() -ne $want) { throw "$($setup[0].Name) does not match its SHA256SUMS.txt" }
+          Copy-Item $setup[0].FullName installer/out/TPF2-Multiplayer-Launcher-Setup.exe
+          Write-Host "attached $($setup[0].Name) as TPF2-Multiplayer-Launcher-Setup.exe ($want)"
+
       - name: Checksums
         shell: pwsh
         working-directory: installer/out
         run: |
           # LF line endings: sha256sum -c and the shell installer read "<hash>  <name>" lines,
           # and a trailing \r (Set-Content's default on Windows) broke the 0.6.1.12 install
-          $sums = Get-FileHash TpF2Multiplayer.msi, TpF2Multiplayer-files.zip -Algorithm SHA256 |
+          $sums = Get-FileHash TpF2Multiplayer.msi, TpF2Multiplayer-files.zip, TPF2-Multiplayer-Launcher-Setup.exe -Algorithm SHA256 |
             ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), (Split-Path $_.Path -Leaf) }
           [IO.File]::WriteAllText((Join-Path (Get-Location) SHA256SUMS.txt), ($sums -join "`n") + "`n", (New-Object Text.ASCIIEncoding))
           Get-Content SHA256SUMS.txt
@@ -135,6 +155,7 @@ jobs:
           | You play on | Get this one file |
           | --- | --- |
           | **Windows** (Steam, game build 35924) | **[TpF2Multiplayer.msi]($base/TpF2Multiplayer.msi)** -- close the game, run it, done |
+          | **Windows**, with the launcher | [TPF2-Multiplayer-Launcher-Setup.exe]($base/TPF2-Multiplayer-Launcher-Setup.exe) -- installs the mod, keeps it updated and starts the game through Steam |
           | **Linux / Steam Deck** (the Windows game under Proton) | [install_proton.sh]($base/install_proton.sh) -- run it with sh; it fetches the rest itself ([install_proton.py]($base/install_proton.py) does the same with Python) |
           | Manual install, any platform | [TpF2Multiplayer-files.zip]($base/TpF2Multiplayer-files.zip), checked against [SHA256SUMS.txt]($base/SHA256SUMS.txt) |
 
@@ -156,6 +177,7 @@ jobs:
           path: |
             installer/out/TpF2Multiplayer.msi
             installer/out/TpF2Multiplayer-files.zip
+            installer/out/TPF2-Multiplayer-Launcher-Setup.exe
             installer/out/install_proton.py
             installer/out/install_proton.sh
             installer/out/SHA256SUMS.txt
@@ -168,6 +190,7 @@ jobs:
           files: |
             installer/out/TpF2Multiplayer.msi
             installer/out/TpF2Multiplayer-files.zip
+            installer/out/TPF2-Multiplayer-Launcher-Setup.exe
             installer/out/install_proton.py
             installer/out/install_proton.sh
             installer/out/SHA256SUMS.txt

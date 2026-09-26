@@ -337,6 +337,20 @@ def _joiner_bulk_listener(port, log):
         return JOINER_BULK[0]
 
 
+# THE MASTER'S RELAY IS NOT THE HOST (2026-09-26). A joiner that got in through
+# the master's UDP relay (RENDEZVOUS, relay=1) has the relay's address as its
+# peer. Its TCP bulk dial went to that address with the host's lobby port --
+# "no TCP stream from 76.13.109.x port 29471" three times, 10 s lost, on every
+# relayed join -- and the relay forwards UDP only. Both sides note the relay
+# ports they bind here; the host names its own addresses to a relayed peer as
+# it does to a Steam peer, and the joiner dials those, never the relay.
+MASTER_RELAY_ADDRS = set()
+
+
+def _is_master_relay(addr):
+    return isinstance(addr, tuple) and len(addr) >= 2 and (str(addr[0]), int(addr[1])) in MASTER_RELAY_ADDRS
+
+
 def _open_steam_joiner_tcp(port, log, mapper=None):
     """A joiner in through Steam: open the bulk listener now and map its TCP port
     on the router (UPnP), putting the WAN IP first in MY_TCP_ADDRS. Runs on a
@@ -1650,8 +1664,9 @@ class _HostSaveTransfer:
         self._tcp_lock = threading.Lock()
         if self.tcp_token and BULK[0] is not None:
             self.begin_msg["tcp"] = {"port": BULK[0].port, "token": self.tcp_token}
-            if MY_TCP_ADDRS[0] and any(steamtunnel.is_tunnel_addr(a) for a, _ in targets):
-                self.begin_msg["tcp"]["addrs"] = list(MY_TCP_ADDRS[0])   # a Steam peer cannot see where we are
+            if MY_TCP_ADDRS[0] and any(steamtunnel.is_tunnel_addr(a) or _is_master_relay(a) for a, _ in targets):
+                # a Steam or relayed peer cannot see where we are
+                self.begin_msg["tcp"]["addrs"] = list(MY_TCP_ADDRS[0])
             BULK[0].expect(sid, "recv", self.tcp_token, self._tcp_serve)
         elif self.tcp_token:
             self.begin_msg["tcp"] = {"token": self.tcp_token}     # no listener: the other side may offer one
@@ -2705,6 +2720,15 @@ class _ClientSaveReceiver:
                 if BULK[0] is not None:
                     BULK[0].expect(sid, "send", tcp["token"], self._tcp_accepted)
                     ack["tcp_port"] = BULK[0].port
+            elif isinstance(tcp.get("port"), int) and _is_master_relay(getattr(self.conn, "peer", None)):
+                # THROUGH THE MASTER'S RELAY: the relay carries UDP only; dial the
+                # addresses the host named, or leave the save to UDP at once
+                host_ips = _valid_tcp_addrs(tcp.get("addrs"))
+                if host_ips:
+                    threading.Thread(target=self._tcp_pull, args=(host_ips, tcp["port"], tcp["token"], sid),
+                                     name="bulk-pull", daemon=True).start()
+                self.log(f"[client] the host is reached through the master's relay: TCP to {len(host_ips)} host address(es)"
+                         + ("" if host_ips else " -- the save comes over UDP"))
             elif isinstance(tcp.get("port"), int) and getattr(self.conn, "peer", None) \
                     and not steamtunnel.is_tunnel_addr(self.conn.peer):
                 threading.Thread(target=self._tcp_pull, args=(self.conn.peer[0], tcp["port"], tcp["token"], sid),
@@ -3634,6 +3658,7 @@ class _RendezvousKnock:
             self.sock.sendto(RELAY_MAGIC + aid + b"J", (ip, port))
         except OSError:
             return
+        MASTER_RELAY_ADDRS.add((str(ip), int(port)))
         if self.relay is None:
             self.relay = r
             if (ip, port) not in self.late:
@@ -4940,6 +4965,7 @@ def run_host(sock, my_name, io, code=None, stop=None, drop_after=DROP_AFTER,
                                 # the master's relay port for a joiner: bind to it
                                 # (TRLB|id|H) until that joiner's frames come through it
                                 relay_binds[(str(t[0]), int(t[1]))] = (bytes(t[2]), now + RV_PUNCH_FOR)
+                                MASTER_RELAY_ADDRS.add((str(t[0]), int(t[1])))
                             else:
                                 punching[(str(t[0]), int(t[1]))] = now + RV_PUNCH_FOR
                 except queue.Empty:

@@ -73,6 +73,57 @@ class TcpConnectivity(unittest.TestCase):
                 chunks.append(chunk)
         self.assertEqual(b"".join(chunks), b"ABCDEF")
 
+    def _begin_through(self, peer, tcp):
+        """on_begin of a small save from `peer`; returns the addresses _tcp_pull dialled."""
+        dialled = []
+        conn = types.SimpleNamespace(peer=peer, send=lambda *a, **k: None, sock=None)
+        receiver = lobby._ClientSaveReceiver(conn, types.SimpleNamespace(emit=lambda event: None, write_state=lambda **k: None),
+                                             lambda *args: None)
+        receiver._send = lambda msg: None
+        receiver._tcp_pull = lambda ip, *rest: dialled.append(ip)
+        msg = {"t": "fbegin", "sid": 5, "kind": "save", "total_bytes": 6, "total_chunks": 1, "chunk": 1350,
+               "files": [{"name": "incoming_save.sav", "size": 6}], "mods": [], "tcp": tcp}
+        with patch.object(lobby, "BULK_TCP", [True]), \
+             patch.object(threading, "Thread", lambda target, args, **k: types.SimpleNamespace(start=lambda: target(*args))):
+            receiver.on_begin(msg)
+        return dialled
+
+    def test_relayed_join_dials_the_host_never_the_relay(self):
+        # 2026-09-26: a joiner in through the master's UDP relay dialled TCP at the
+        # relay's address with the host's port, three times, before taking UDP
+        relay = ("76.13.109.1", 29600)
+        with patch.object(lobby, "MASTER_RELAY_ADDRS", {relay}):
+            self.assertTrue(lobby._is_master_relay(relay))
+            self.assertFalse(lobby._is_master_relay(("76.13.109.1", 29471)))
+            named = self._begin_through(relay, {"port": 29471, "token": "t", "addrs": ["203.0.113.5"]})
+            self.assertEqual(named, [["203.0.113.5"]])          # the host's own address, not the relay
+            self.assertEqual(self._begin_through(relay, {"port": 29471, "token": "t"}), [])   # none named: UDP at once
+        # a direct join still dials the address the lobby came from
+        self.assertEqual(self._begin_through(("198.51.100.7", 29471), {"port": 29471, "token": "t"}), ["198.51.100.7"])
+
+    def test_host_advertises_tcp_addresses_to_relayed_targets(self):
+        relay = ("192.0.2.1", 29600)
+        direct = ("198.51.100.7", 29471)
+        addresses = ["203.0.113.5", "2001:db8::5"]
+        listener = types.SimpleNamespace(port=29471, expect=lambda *args: None)
+        with patch.object(lobby, "MASTER_RELAY_ADDRS", {relay}), \
+             patch.object(lobby, "BULK_TCP", [True]), \
+             patch.object(lobby, "BULK", [listener]), \
+             patch.object(lobby, "MY_TCP_ADDRS", [addresses]):
+            for peers, advertised in (([relay], True), ([direct, relay], True), ([direct], False)):
+                with self.subTest(peers=peers):
+                    transfer = lobby._HostSaveTransfer(
+                        None, 5, b"ABCDEF", [{"name": "incoming_save.sav", "size": 6}],
+                        [(peer, str(i)) for i, peer in enumerate(peers)], None, lambda *args: None)
+                    tcp = transfer.begin_msg["tcp"]
+                    self.assertEqual(tcp["port"], listener.port)
+                    self.assertTrue(tcp["token"])
+                    if advertised:
+                        self.assertEqual(tcp["addrs"], addresses)
+                        self.assertIsNot(tcp["addrs"], addresses)
+                    else:
+                        self.assertNotIn("addrs", tcp)
+
     def test_both_families_both_directions_and_auth(self):
         listener = bulk_tcp.BulkListener(0)
         self.addCleanup(listener.close)

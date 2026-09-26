@@ -395,3 +395,8 @@ The [release 0.7.0.4 integration](UPSTREAM_dev_e86d5552.md) advances the native 
 and shared lobby handshake to **0.7.0.4**. All peers, including dedicated
 servers, must update. This release stamps the previously integrated hot-join,
 menu and log fixes; existing native feature and live-validation limits remain.
+
+The [dev `c74a7b4e` integration](UPSTREAM_dev_c74a7b4e.md) fixes
+TCP save routing after joining through the master's UDP relay: the joiner tries
+the host's advertised addresses, or continues on UDP when none are available.
+The shared lobby implements this on Linux and Windows; version remains 0.7.0.4.

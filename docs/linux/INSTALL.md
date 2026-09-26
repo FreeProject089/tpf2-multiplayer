@@ -70,9 +70,10 @@ with removal shown in `--dry-run`.
 From 0.7.0.6 onward, download `tpf2mp-linux-<version>-native.run` and
 `tpf2mp-linux-<version>-native.sha256` from the matching tag in
 [tpf2-multiplayer-packages](https://github.com/silver2127/tpf2-multiplayer-packages/releases).
-Releases through 0.7.0.5 keep their existing assets in the mod repository.
-The mod release carries the launchers; manual native installation uses the
-packages repository. Verify the `.run` entry in the checksum file before running it:
+The same install files also live on the mod repository's `v<version>` release.
+The `<version>` page (without `v`) carries the two launchers and is marked
+Latest; its `v<version>` install-files release is published afterward for older
+launchers. Releases through 0.7.0.5 keep their existing assets. Verify the `.run` entry in the checksum file before running it:
 
 ```sh
 sha256sum --check --ignore-missing tpf2mp-linux-<version>-native.sha256
@@ -277,9 +278,12 @@ See [the release-layout integration](UPSTREAM_dev_4e1e486c.md).
 
 Launcher-only updates use `python3 tools/publish_release.py launcher`
 (default: draft; `--publish` publishes). They need no `--linux-dir` and use
-`launcher-v<version>` tags with `make_latest=false`; Latest remains the mod
-release. Mod releases still require `--linux-dir` and include the launchers.
-See [the launcher-release integration](UPSTREAM_dev_e12ed657.md).
+`launcher-v<version>` tags with `make_latest=false`; Latest remains the
+`<version>` launcher page. The publisher then deletes and re-creates the newest
+stable `v<version>` release with its downloaded install files, so older launchers
+still select it. Mod releases require `--linux-dir`, upload native files to both
+install-file releases, and publish the launcher page before `v<version>`.
+See [the two-release integration](UPSTREAM_dev_8978635d.md).
 
 The version defaults to `installer/VERSION`. See `RESUME_STATUS.md` in the source tree for implementation coverage and remaining runtime validation; packaging success alone does not establish multiplayer parity.
 

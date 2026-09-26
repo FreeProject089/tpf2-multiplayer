@@ -55,7 +55,8 @@ It installs the mod, keeps it up to date and starts the game. Everyone in a sess
 
 The launcher downloads the install files from [tpf2-multiplayer-packages](https://github.com/silver2127/tpf2-multiplayer-packages/releases)
 (the release with the same tag); to install by hand, take `TpF2Multiplayer.msi` from there, close the game and
-run it. Releases up to 0.7.0.5 carry these files themselves.
+run it. The mod repository also carries install files on `v<version>`; from 0.7.0.6,
+the Latest page is tagged `<version>` (without `v`) and carries the two launchers.
 
 The installer finds the game folder through Steam, keeps the game's `alut.dll` as `alut_real.dll` and puts
 the proxy in its place, adds the DLLs, the lobby (the `netpunch\` folder) and the **Transport Fever 2 Multiplayer** mod, and
@@ -74,7 +75,7 @@ game's own `alut.dll` is put back. Steam's "Verify integrity of game files" also
 Multiplayer entry until you run the MSI's **Repair**.
 
 Every release is built by GitHub Actions from the tagged source
-([`.github/workflows/build-msi.yml`](.github/workflows/build-msi.yml)); `SHA256SUMS.txt` in the matching packages release (the mod release through 0.7.0.5) lists the
+([`.github/workflows/build-msi.yml`](.github/workflows/build-msi.yml)); `SHA256SUMS.txt` in the matching packages release (also on the mod repository's `v<version>` release) lists the
 files it produced. The lobby is a Python program frozen with PyInstaller, and unsigned software of that kind is
 sometimes flagged by antivirus heuristics. The checksums and the build log are how to check that what you downloaded
 is what the source builds.
@@ -293,3 +294,7 @@ Copies remain subject to the archive budget. Version remains 0.7.0.5.
 The [dev `363c38cc` integration](docs/linux/UPSTREAM_dev_363c38cc.md) retains the Windows
 terrain-sidecar concurrent-release fix. Native sidecar capture/serving remains
 unported; native pager and alignment batching behavior is unchanged.
+
+The [dev `8978635d` integration](docs/linux/UPSTREAM_dev_8978635d.md) keeps
+launchers on the Latest `<version>` page and install files on `v<version>`
+and the packages repository. Native release version remains 0.7.0.5.

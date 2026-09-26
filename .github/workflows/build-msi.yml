@@ -3,9 +3,9 @@
 # custom-action DLL, wix build, then an administrative-install validation), then
 # tools\build_files_zip.py. A push to main, a v* tag or a manual run gets the
 # artifacts; a v* tag also gets a draft GitHub release with its notes, which
-# tools/publish_release.py completes: the install files go to the packages
-# repository (silver2127/tpf2-multiplayer-packages, same tag) and the release
-# itself carries the two launchers only. Nothing builds on dev or pull
+# tools/publish_release.py completes: the install files stay on this release and
+# go to the packages repository (silver2127/tpf2-multiplayer-packages, same tag),
+# and a page tagged without the "v" carries the two launchers. Nothing builds on dev or pull
 # requests: the tests run locally, the MSI is for releases.
 #
 # The runner's Visual Studio is found through vswhere (tools\msvc_env.bat), so no
@@ -131,10 +131,10 @@ jobs:
         run: |
           $tag = '${{ github.ref_name }}'
           $ver = $tag.Substring(1)
-          # The release shows the two launchers only (tools/publish_release.py attaches them
-          # under these names); the install files go to silver2127/tpf2-multiplayer-packages,
-          # same tag, where the launchers and the Proton script download them.
-          $base = 'https://github.com/${{ github.repository }}/releases/download/' + $tag
+          # The launchers are on the version's page, tagged without the "v" (tools/publish_release.py
+          # attaches them under these names); this v-tagged release keeps the install files for
+          # the launchers, which also go to silver2127/tpf2-multiplayer-packages, same tag.
+          $base = 'https://github.com/${{ github.repository }}/releases/download/' + $ver
           $pkg = 'https://github.com/silver2127/tpf2-multiplayer-packages/releases/tag/' + $tag
           $body = @"
           ## Download
@@ -168,8 +168,8 @@ jobs:
           if-no-files-found: error
 
       # A draft with the notes only: tools/publish_release.py puts the files above (this
-      # run's artifact) and the native Linux package into the packages repository, attaches
-      # the two launchers here and publishes.
+      # run's artifact) and the native Linux package on it and into the packages repository,
+      # attaches the two launchers to the <version> page and publishes both.
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2

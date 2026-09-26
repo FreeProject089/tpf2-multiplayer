@@ -279,3 +279,8 @@ Native builds now emit the publisher's `-native` assets and checksums; see
 The [dev `e12ed657` integration](docs/linux/UPSTREAM_dev_e12ed657.md) adds
 separate `launcher-v<version>` releases without moving the Latest mod release.
 The shared publisher supports Linux AppImages; native version remains 0.7.0.5.
+
+The [dev `2f65bae3` integration](docs/linux/UPSTREAM_dev_2f65bae3.md) adds compressed terrain edits
+with checksum validation to native capture and replay. Every peer needs this
+build; the unchanged 0.7.0.5 version handshake does not detect older terrain
+readers. Uncompressed version-1 edits remain readable.

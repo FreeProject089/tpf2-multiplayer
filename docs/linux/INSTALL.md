@@ -444,3 +444,8 @@ joining when `tpf2_bridge_mp.so` is not loaded in the game process. The menu
 shows an amber explanation. Reinstall the native package and restart the game;
 check `data/tpf2_proxy.log` for the attempted path and the `dlopen` error.
 Having the file on disk or an old `tpf2_instance.txt` does not establish a load.
+
+The [dev `2f65bae3` integration](UPSTREAM_dev_2f65bae3.md) adds compressed terrain edits
+with checksum validation to native capture and replay. Every peer needs this
+build; the unchanged 0.7.0.5 version handshake does not detect older terrain
+readers. Uncompressed version-1 edits remain readable.

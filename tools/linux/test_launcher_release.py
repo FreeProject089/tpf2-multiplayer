@@ -19,7 +19,7 @@ spec.loader.exec_module(publisher)
 class LauncherReleaseTest(unittest.TestCase):
     def setUp(self):
         self.args = SimpleNamespace(windows_launcher=None, linux_launcher=None,
-                                    no_linux_launcher=False, publish=False, dry_run=False)
+                                    no_linux_launcher=False, publish=False, dry_run=False, replace_page=False)
         self.blobs = {"launcher-Setup.exe": b"windows fixture", "launcher.AppImage": b"linux fixture"}
         self.blobs["SHA256SUMS.txt"] = "".join(
             f"{hashlib.sha256(data).hexdigest()}  {name}\n"
@@ -161,6 +161,8 @@ class VersionReleaseTest(unittest.TestCase):
 
     def call(self, method, url):
         self.assertEqual(method, 'GET')
+        if '/git/ref/tags/' in url:
+            return {'object': {'type': 'commit', 'sha': 'fixture-commit'}}
         if url == f'/repos/{publisher.LAUNCHER_REPO}/releases/latest':
             return dict(tag_name='v1.3.0', assets=[])
         self.assertTrue(url.startswith(f'/repos/{publisher.REPO}/releases?'), url)
@@ -168,6 +170,8 @@ class VersionReleaseTest(unittest.TestCase):
 
     def write(self, what, method, url, **kw):
         self.writes.append((method, url, kw))
+        if method == 'POST' and url.endswith('/git/tags'):
+            return {'sha': 'page-tag-object'}
         if method == 'POST' and url.endswith('/releases'):
             return {**self.release(10 + len(self.writes), kw['body']['tag_name']), **kw['body']}
 
@@ -197,6 +201,12 @@ class VersionReleaseTest(unittest.TestCase):
         self.assertEqual(page['tag_name'], self.version)
         self.assertIn('/download/0.7.0.6/', page['body'])
         self.assertEqual(page['target_commitish'], 'fixture-commit')
+        tag = next(kw['body'] for method, url, kw in self.writes
+                   if method == 'POST' and url.endswith('/git/tags'))
+        self.assertEqual(tag['object'], 'fixture-commit')
+        self.assertEqual(tag['tag'], self.version)
+        self.assertIn(('POST', f'/repos/{publisher.REPO}/git/refs',
+                       {'body': {'ref': 'refs/tags/' + self.version, 'sha': 'page-tag-object'}}), self.writes)
         self.assertIn(('DELETE', f'/repos/{publisher.REPO}/releases/assets/90', {}), self.writes)
 
     def test_prerelease_page_is_not_latest(self):
@@ -294,7 +304,11 @@ class RepublishTest(unittest.TestCase):
 class PageReleaseTest(unittest.TestCase):
     """Migrate a published version using only fixture assets and a fake service."""
     setUp = LauncherReleaseTest.setUp
-    write = LauncherReleaseTest.write
+    def write(self, what, method, url, **kw):
+        result = LauncherReleaseTest.write(self, what, method, url, **kw)
+        if not self.args.dry_run and method == 'POST' and url.endswith('/git/tags'):
+            return {'sha': 'page-tag-object'}
+        return result
 
     def call(self, method, url, **kw):
         if method != 'GET':
@@ -306,6 +320,7 @@ class PageReleaseTest(unittest.TestCase):
         return LauncherReleaseTest.call(self, method, url)
 
     def prepare(self):
+        self.gh.get = lambda url: None
         self.args.page_tag = 'v0.7.0.5'
         self.ref_type = 'commit'
         self.notes = '## Download\n\nold download table\n\n## Changes\n\nVersion notes.\n'
@@ -356,8 +371,8 @@ class PageReleaseTest(unittest.TestCase):
         self.prepare()
         self.ref_type = 'tag'
         self.run_page()
-        self.assertEqual(self.writes[0][2]['body']['target_commitish'], 'version-commit')
-        self.assertEqual(len(self.writes), 3)
+        self.assertEqual(self.writes[2][2]['body']['target_commitish'], 'version-commit')
+        self.assertEqual(len(self.writes), 5)
         self.assertEqual(self.mod['body'], self.notes)
 
     def test_prerelease_never_latest(self):
@@ -377,11 +392,64 @@ class PageReleaseTest(unittest.TestCase):
             self.run_page()
         self.assertFalse(any(method == 'DELETE' for method, _, _ in self.writes))
 
-    def test_dry_run_only_records_suppressed_page_creation(self):
+    def test_dry_run_records_suppressed_tag_and_page_creation(self):
         self.prepare()
         self.args.publish = self.args.dry_run = True
         self.run_page()
-        self.assertEqual(len(self.writes), 1)
+        self.assertEqual(len(self.writes), 2)
+
+    def test_replace_page_strips_previous_note_and_preserves_source_title(self):
+        self.prepare()
+        self.args.replace_page = self.args.publish = True
+        self.mod['name'] = 'Custom version title'
+        self.mod['body'] = 'The install files of **previous page**, get its launcher.\n\n' + self.notes
+        self.existing.append(dict(id=8, tag_name='0.7.0.5', draft=False))
+        self.run_page()
+        self.assertEqual(self.writes[0], ('DELETE', f'/repos/{publisher.REPO}/releases/8', {}))
+        page, files = [kw['body'] for method, url, kw in self.writes
+                       if method == 'POST' and url.endswith('/releases')]
+        self.assertEqual(page['name'], 'Custom version title')
+        self.assertNotIn('The install files of ', page['body'])
+        self.assertEqual(files['body'].count('The install files of '), 1)
+        self.assertTrue(files['body'].endswith(self.notes))
+        self.assertNotIn('previous page', files['body'])
+
+    def test_page_cli_accepts_replace_without_linux_payload(self):
+        self.prepare()
+        with patch.object(publisher.sys, 'argv',
+                          ['publish_release.py', 'page', 'v0.7.0.5', '--replace-page']), \
+             patch.object(publisher, 'token', return_value='offline'), \
+             patch.object(publisher, 'GitHub', return_value=self.gh), \
+             patch.object(publisher, 'page_release') as run:
+            publisher.main()
+        self.assertTrue(run.call_args.args[1].replace_page)
+
+    def test_lightweight_page_tag_is_replaced_before_page_creation(self):
+        self.prepare()
+        self.gh.get = lambda url: {'object': {'type': 'commit', 'sha': 'old-commit'}}
+        self.run_page()
+        self.assertEqual(self.writes[0], ('DELETE', f'/repos/{publisher.REPO}/git/refs/tags/0.7.0.5', {}))
+        tag = self.writes[1][2]['body']
+        self.assertEqual(tag['object'], 'version-commit')
+        self.assertEqual(tag['type'], 'commit')
+        self.assertRegex(tag['tagger']['date'], r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$')
+        self.assertEqual(self.writes[2][2]['body'],
+                         {'ref': 'refs/tags/0.7.0.5', 'sha': 'page-tag-object'})
+        self.assertEqual(self.writes[3][2]['body']['tag_name'], '0.7.0.5')
+
+    def test_existing_annotated_page_tag_is_retained(self):
+        self.prepare()
+        self.gh.get = lambda url: {'object': {'type': 'tag', 'sha': 'existing-tag'}}
+        self.run_page()
+        self.assertFalse(any('/git/' in url for _, url, _ in self.writes))
+
+    def test_dry_run_still_requires_replace_for_published_page(self):
+        self.prepare()
+        self.args.dry_run = True
+        self.existing.append(dict(id=8, tag_name='0.7.0.5', draft=False))
+        with self.assertRaisesRegex(SystemExit, '--replace-page'):
+            self.run_page()
+        self.assertEqual(self.writes, [])
 
     def test_invalid_or_unpublished_source_and_published_page_are_rejected(self):
         self.prepare()

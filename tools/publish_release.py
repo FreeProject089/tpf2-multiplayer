@@ -193,6 +193,31 @@ def find_release(gh, tag):
     return None
 
 
+def page_tag_ref(gh, name, commit, dry):
+    """The page's tag as an ANNOTATED tag dated now. The releases list on GitHub is
+    ordered by the tag's date, and the tag a release creates by itself is a
+    lightweight one carrying the commit's date: older than v<version>'s annotated
+    tag, so the page sorted BELOW the install files (0.7.0.5, 2026-09-26: "that did
+    not work", the list opened on "0.7.0.5 (install files)"). Launchers up to 1.2.0
+    go by the publication date, which stays the other way round."""
+    ref = gh.get(f"/repos/{REPO}/git/ref/tags/{name}")
+    if ref is not None:
+        if ref["object"]["type"] == "tag":
+            return
+        gh.write(f"delete the lightweight tag {name}", "DELETE", f"/repos/{REPO}/git/refs/tags/{name}")
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    obj = gh.write(f"create the annotated tag {name} on {commit[:10]}", "POST", f"/repos/{REPO}/git/tags", body={
+        "tag": name, "message": f"TpF2 Multiplayer {name}: the launchers", "object": commit, "type": "commit",
+        "tagger": {"name": "silver2127", "email": "52584484+silver2127@users.noreply.github.com", "date": now}})
+    if obj is not None:
+        gh.write(f"create refs/tags/{name}", "POST", f"/repos/{REPO}/git/refs", body={"ref": f"refs/tags/{name}", "sha": obj["sha"]})
+
+
+def tag_commit(gh, tag):
+    ref = gh.call("GET", f"/repos/{REPO}/git/ref/tags/{tag}")["object"]
+    return gh.call("GET", f"/repos/{REPO}/git/tags/{ref['sha']}")["object"]["sha"] if ref["type"] == "tag" else ref["sha"]
+
+
 def published(gh, rel, latest):
     change = {"draft": False, "make_latest": "true" if latest else "false"}
     gh.write(f"publish {rel['tag_name']}{'' if latest else ' (not Latest)'}", "PATCH",
@@ -398,36 +423,43 @@ def page_release(gh, args):
     """A version published before this layout: its page with the two launchers, then its
     v-release (the files, untouched) renamed and published again after the page."""
     tag = args.page_tag
+    page_tag_name = (tag or "")[1:]
     if not re.fullmatch(r"v\d+\.\d+(\.\d+){0,2}", tag or ""):
         fail("page needs the version's tag, e.g. page v0.7.0.5")
-    version, page_tag = tag[1:], tag[1:]
+    version = tag[1:]
     mod = find_release(gh, tag)
     if mod is None or mod["draft"]:
         fail(f"{tag} is not a published release (a new version goes through publish_release.py {tag})")
     if not any(a["name"] == "TpF2Multiplayer.msi" for a in mod["assets"]):
         fail(f"{tag} has no TpF2Multiplayer.msi: launchers up to 1.2.0 could not install it")
-    page = find_release(gh, page_tag)
-    if page and not page["draft"] and not args.dry_run:
-        fail(f"the page {page_tag} is already published")
-    # the page at the commit the version's tag names
-    ref = gh.call("GET", f"/repos/{REPO}/git/ref/tags/{tag}")["object"]
-    commit = gh.call("GET", f"/repos/{REPO}/git/tags/{ref['sha']}")["object"]["sha"] if ref["type"] == "tag" else ref["sha"]
+    page = find_release(gh, page_tag_name)
+    if page and not page["draft"]:
+        if not args.replace_page:
+            fail(f"the page {page_tag_name} is already published (--replace-page makes it again)")
+        gh.write(f"delete the published page {page_tag_name}", "DELETE", f"/repos/{REPO}/releases/{page['id']}")
+        page = None
+    # the page at the commit the version's tag names, under an annotated tag dated now
+    commit = tag_commit(gh, tag)
+    if page is None:
+        page_tag_ref(gh, page_tag_name, commit, args.dry_run)
     notes = mod.get("body") or ""
+    if notes.startswith("The install files of ") and "\n\n" in notes:   # a page made before: its notes once
+        notes = notes.split("\n\n", 1)[1]
     files_url = mod["html_url"]
     rest = notes.split("\n## ", 1)[1] if notes.startswith("## Download") and "\n## " in notes else notes
-    body = launcher_table(page_tag, files_url) + ("\n## " + rest if notes.startswith("## Download") else "\n" + rest)
-    files_body = (f"The install files of **[TpF2 Multiplayer {version}](https://github.com/{REPO}/releases/tag/{page_tag})**, "
-                  f"which the launchers download. Players: get the launcher from [that page](https://github.com/{REPO}/releases/tag/{page_tag}).\n\n"
+    body = launcher_table(page_tag_name, files_url) + ("\n## " + rest if notes.startswith("## Download") else "\n" + rest)
+    files_body = (f"The install files of **[TpF2 Multiplayer {version}](https://github.com/{REPO}/releases/tag/{page_tag_name})**, "
+                  f"which the launchers download. Players: get the launcher from [that page](https://github.com/{REPO}/releases/tag/{page_tag_name}).\n\n"
                   + notes)
     with tempfile.TemporaryDirectory(prefix="tpf2mp-page-") as tmp:
         chosen = launchers(gh, args, Path(tmp))
         if page is None:
-            say(f"creating the page {page_tag} at {commit[:10]}")
-            page = gh.write(f"create the page {page_tag}", "POST", f"/repos/{REPO}/releases", body={
-                "tag_name": page_tag, "target_commitish": commit, "name": mod["name"] or f"TpF2 Multiplayer {version}",
+            say(f"creating the page {page_tag_name} at {commit[:10]}")
+            page = gh.write(f"create the page {page_tag_name}", "POST", f"/repos/{REPO}/releases", body={
+                "tag_name": page_tag_name, "target_commitish": commit, "name": mod["name"] or f"TpF2 Multiplayer {version}",
                 "body": body, "draft": True, "prerelease": mod["prerelease"], "make_latest": "false"})
         elif page.get("body") != body:
-            gh.write(f"update the page {page_tag}'s notes", "PATCH", f"/repos/{REPO}/releases/{page['id']}", body={"body": body})
+            gh.write(f"update the page {page_tag_name}'s notes", "PATCH", f"/repos/{REPO}/releases/{page['id']}", body={"body": body})
         if page is None:
             say(f"  (dry run) the page would carry: {', '.join(n for _, n in chosen)}")
         else:
@@ -437,14 +469,14 @@ def page_release(gh, args):
                 if a["name"] not in keep:
                     gh.write(f"remove {a['name']} from the page", "DELETE", f"/repos/{REPO}/releases/assets/{a['id']}")
             page["assets"] = [a for a in page.get("assets", []) if a["name"] in keep]
-            say(f"page {page_tag} launchers:")
+            say(f"page {page_tag_name} launchers:")
             upload(gh, page, [p for p, _ in chosen], [n for _, n in chosen])
     if not args.publish:
         say("left the page as a draft (--publish publishes it, then the install files again)")
         return
     if page is not None:
         published(gh, page, not mod["prerelease"])
-        say(f"published: https://github.com/{REPO}/releases/tag/{page_tag}")
+        say(f"published: https://github.com/{REPO}/releases/tag/{page_tag_name}")
     files_name = f"TpF2 Multiplayer {version} (install files)"
     mod["name"], mod["body"] = files_name, files_body
     if not args.dry_run:
@@ -458,6 +490,7 @@ def main():
     ap.add_argument("tag", help="the release tag, e.g. v0.7.0.6; 'launcher' for a launcher update on its own; "
                                 "'page' to move a published version to this layout")
     ap.add_argument("page_tag", nargs="?", help="with page: the version's tag, e.g. v0.7.0.5")
+    ap.add_argument("--replace-page", action="store_true", help="with page: make an already published page again")
     ap.add_argument("--linux-dir", help="folder with tpf2mp-linux-<v>-native.run/.tar.gz/.sha256 (a mod version)")
     ap.add_argument("--payload-dir", help="folder with the Windows/Proton files instead of the tag run's artifact")
     ap.add_argument("--windows-launcher", help="a launcher Setup.exe instead of tearded's newest release")
@@ -523,6 +556,7 @@ def main():
         # the page: exactly the two launchers, the notes
         if page is None:
             say(f"creating the page {page_tag}")
+            page_tag_ref(gh, page_tag, tag_commit(gh, args.tag), args.dry_run)
             page = gh.write(f"create the page {page_tag}", "POST", f"/repos/{REPO}/releases", body={
                 "tag_name": page_tag, "target_commitish": mod.get("target_commitish") or "main",
                 "name": mod.get("name") or f"TpF2 Multiplayer {version}", "body": body,

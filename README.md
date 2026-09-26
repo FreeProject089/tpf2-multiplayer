@@ -302,3 +302,7 @@ and the packages repository. Native release version remains 0.7.0.5.
 The [dev `e2957841` integration](docs/linux/UPSTREAM_dev_e2957841.md) adds
 `page v<version>` to migrate an already published release to this layout,
 including 0.7.0.5, while preserving its install-file assets.
+
+The [dev `9abb2af1` integration](docs/linux/UPSTREAM_dev_9abb2af1.md) adds
+annotated launcher-page tags and explicit `--replace-page`, and removes an
+earlier migration note when recreating a page. Native version remains 0.7.0.5.

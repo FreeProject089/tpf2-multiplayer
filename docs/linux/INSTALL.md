@@ -77,6 +77,8 @@ launchers. Existing versions can also be migrated with the publisher's
 `page v<version>` command (upstream applied this to 0.7.0.5); their install
 assets stay on the same `v<version>` tag with unchanged bytes. See
 [the page-migration integration](UPSTREAM_dev_e2957841.md).
+Page recreation now requires `--replace-page`, including dry runs; see
+[the publisher follow-up](UPSTREAM_dev_9abb2af1.md).
 Verify the `.run` entry in the checksum file before running it:
 
 ```sh

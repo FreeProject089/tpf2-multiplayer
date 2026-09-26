@@ -210,7 +210,10 @@ installing the new MSI (or running the Proton installer again): there is no in-g
    keep their files), attaches `TpF2Multiplayer-Launcher-Windows-Setup.exe` and
    `TpF2Multiplayer-Launcher-Linux.AppImage` (tearded/tpf-multiplayer-launcher's newest release, under names
    that never change, so `releases/latest/download/<name>` always works) and publishes. It refuses a release that
-   is already published. The install files: `TpF2Multiplayer.msi`,
+   is already published. A launcher update between mod versions gets a release of its own:
+   `python tools/publish_release.py launcher --publish` makes `launcher-v<launcher version>` with the same two
+   files, not marked Latest (releases/latest stays the newest mod version; the launchers skip `launcher-*` tags,
+   and the workflow builds only `v*` tags). The install files: `TpF2Multiplayer.msi`,
    `TpF2Multiplayer-files.zip` (the MSI's files as an archive: Proton and manual installs), a
    `SHA256SUMS.txt` listing them, `tools/proton/install.py` as `install_proton.py` with its
    `DEFAULT_VERSION = None` line changed to the release version (so a copy taken from that release

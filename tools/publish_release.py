@@ -3,6 +3,15 @@
 launchers to the mod's release, then publish it.
 
     python tools/publish_release.py v0.7.0.6 --linux-dir DIR [--publish]
+    python tools/publish_release.py launcher [--publish]     a launcher update on its own
+
+LAUNCHER RELEASES (the user, 2026-09-26: "make separate releases for the launcher
+updates, tag them as something else"). A new launcher does not wait for a mod
+version: `launcher` makes a release tagged launcher-v<launcher version> (tearded's
+tag, e.g. launcher-v1.2.0) with the same two files under the same names, published
+WITHOUT the "Latest" mark, so releases/latest stays the newest mod version. The
+launchers skip launcher-* tags when they look for mod versions, and the release
+workflow builds only v* tags. Mod releases still attach the launchers of the day.
 
 THE LAYOUT (2026-09-26, the user: releases should "only show 2 things to download
 the linux launcher and the windows launcher"). A release of silver2127/tpf2-multiplayer
@@ -226,6 +235,7 @@ def launchers(gh, args, into):
     if not args.no_linux_launcher:
         want.append(("linux", args.linux_launcher, r"\.AppImage$", LINUX_NAME))
     rel = gh.call("GET", f"/repos/{LAUNCHER_REPO}/releases/latest")
+    args.launcher_release = rel
     listed = {}
     sums_asset = next((a for a in rel["assets"] if a["name"] == "SHA256SUMS.txt"), None)
     if sums_asset:
@@ -251,10 +261,53 @@ def launchers(gh, args, into):
     return out
 
 
+def launcher_release(gh, args):
+    """A launcher update on its own: launcher-v<version>, the two files, not marked Latest."""
+    with tempfile.TemporaryDirectory(prefix="tpf2mp-launcher-") as tmp:
+        chosen = launchers(gh, args, Path(tmp))
+        source = args.launcher_release
+        lver = source["tag_name"].lstrip("v")
+        if not re.fullmatch(r"\d+\.\d+(\.\d+){0,2}", lver):
+            fail(f"unexpected launcher tag {source['tag_name']}")
+        tag = f"launcher-v{lver}"
+        base = f"https://github.com/{REPO}/releases/download/{tag}"
+        body = (f"## Launcher {lver}\n\n"
+                "A new version of the launcher that installs, updates and starts TpF2 Multiplayer. "
+                "It does not change the mod version: the launcher installs whichever mod release your group plays.\n\n"
+                "| You play on | Get this one file |\n| --- | --- |\n"
+                f"| **Windows** | **[{WINDOWS_NAME}]({base}/{WINDOWS_NAME})** |\n"
+                + ("" if args.no_linux_launcher else f"| **Linux / Steam Deck** | **[{LINUX_NAME}]({base}/{LINUX_NAME})** |\n")
+                + f"\nAn installed launcher also updates itself (Settings). What changed: [launcher {lver}]({source['html_url']}).\n")
+        existing = next((r for page in range(1, 6) for r in gh.call("GET", f"/repos/{REPO}/releases?per_page=100&page={page}")
+                         if r["tag_name"] == tag), None)
+        if existing and not existing["draft"] and not args.dry_run:
+            fail(f"{tag} is already published")
+        rel = existing or gh.write(f"create {tag}", "POST", f"/repos/{REPO}/releases", body={
+            "tag_name": tag, "target_commitish": "main", "name": f"Launcher {lver}", "body": body,
+            "draft": True, "prerelease": False, "make_latest": "false"})
+        if rel is None:
+            say(f"  (dry run) {tag} would carry: {', '.join(n for _, n in chosen)}")
+            return
+        rel["_repo"] = REPO
+        keep = {n for _, n in chosen}
+        for a in rel.get("assets", []):
+            if a["name"] not in keep:
+                gh.write(f"remove {a['name']}", "DELETE", f"/repos/{REPO}/releases/assets/{a['id']}")
+        rel["assets"] = [a for a in rel.get("assets", []) if a["name"] in keep]
+        say(f"{tag}:")
+        upload(gh, rel, [p for p, _ in chosen], [n for _, n in chosen])
+        if args.publish:
+            gh.write(f"publish {tag} (not Latest)", "PATCH", f"/repos/{REPO}/releases/{rel['id']}",
+                     body={"draft": False, "make_latest": "false"})
+            say(f"published: https://github.com/{REPO}/releases/tag/{tag}")
+        else:
+            say("left as a draft (--publish publishes it)")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("tag", help="the release tag, e.g. v0.7.0.6")
-    ap.add_argument("--linux-dir", required=True, help="folder with tpf2mp-linux-<v>-native.run/.tar.gz/.sha256")
+    ap.add_argument("tag", help="the release tag, e.g. v0.7.0.6, or 'launcher' for a launcher update on its own")
+    ap.add_argument("--linux-dir", help="folder with tpf2mp-linux-<v>-native.run/.tar.gz/.sha256 (a mod version)")
     ap.add_argument("--payload-dir", help="folder with the Windows/Proton files instead of the tag run's artifact")
     ap.add_argument("--windows-launcher", help="a launcher Setup.exe instead of tearded's newest release")
     ap.add_argument("--linux-launcher", help="a Linux launcher AppImage instead of tearded's newest release")
@@ -262,8 +315,12 @@ def main():
     ap.add_argument("--publish", action="store_true", help="publish the draft at the end (default: leave it a draft)")
     ap.add_argument("--dry-run", action="store_true", help="check everything, change nothing on GitHub")
     args = ap.parse_args()
+    if args.tag == "launcher":
+        return launcher_release(GitHub(token(), args.dry_run), args)
     if not re.fullmatch(r"v\d+\.\d+(\.\d+){0,2}", args.tag):
-        fail("the tag looks like v0.7.0.6")
+        fail("the tag looks like v0.7.0.6, or is 'launcher'")
+    if not args.linux_dir:
+        fail("a mod version needs --linux-dir")
     version = args.tag[1:]
     gh = GitHub(token(), args.dry_run)
 

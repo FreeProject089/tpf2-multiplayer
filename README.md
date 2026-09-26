@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Website: [silver2127.github.io/tpf2-multiplayer](https://silver2127.github.io/tpf2-multiplayer/)** ·
-[Download the installer](https://github.com/silver2127/tpf2-multiplayer/releases/latest/download/TpF2Multiplayer.msi) ·
+[Download the launcher (Windows)](https://github.com/silver2127/tpf2-multiplayer/releases/latest/download/TpF2Multiplayer-Launcher-Windows-Setup.exe) · [Linux](https://github.com/silver2127/tpf2-multiplayer/releases/latest/download/TpF2Multiplayer-Launcher-Linux.AppImage) ·
 [Privacy policy](https://silver2127.github.io/tpf2-multiplayer/privacy.html)
 
 **Join The Discord: [https://discord.gg/7VhmtUstqQ](https://discord.gg/7VhmtUstqQ)** ·
@@ -48,9 +48,14 @@ compares them continuously. The lobby handles NAT traversal, encryption and send
 
 ## Install
 
-**Download [`TpF2Multiplayer.msi`](https://github.com/silver2127/tpf2-multiplayer/releases/latest/download/TpF2Multiplayer.msi) (the [latest release](https://github.com/silver2127/tpf2-multiplayer/releases/latest); Linux and Steam Deck: `install_proton.sh` from the same page),
-close the game, and run it.** Everyone in a session needs the same version. A new version is installed the same
-way, over the old one: there is no in-game updater.
+**Download the launcher from the [latest release](https://github.com/silver2127/tpf2-multiplayer/releases/latest):
+[`TpF2Multiplayer-Launcher-Windows-Setup.exe`](https://github.com/silver2127/tpf2-multiplayer/releases/latest/download/TpF2Multiplayer-Launcher-Windows-Setup.exe) or, on Linux and Steam Deck,
+[`TpF2Multiplayer-Launcher-Linux.AppImage`](https://github.com/silver2127/tpf2-multiplayer/releases/latest/download/TpF2Multiplayer-Launcher-Linux.AppImage). Run it and press Update & play.**
+It installs the mod, keeps it up to date and starts the game. Everyone in a session needs the same version.
+
+The launcher downloads the install files from [tpf2-multiplayer-packages](https://github.com/silver2127/tpf2-multiplayer-packages/releases)
+(the release with the same tag); to install by hand, take `TpF2Multiplayer.msi` from there, close the game and
+run it. Releases up to 0.7.0.5 carry these files themselves.
 
 The installer finds the game folder through Steam, keeps the game's `alut.dll` as `alut_real.dll` and puts
 the proxy in its place, adds the DLLs, the lobby (the `netpunch\` folder) and the **Transport Fever 2 Multiplayer** mod, and
@@ -59,7 +64,7 @@ to `%LOCALAPPDATA%\tpf2mp\data\`. It installs alongside
 [TpF2 Big Maps](https://github.com/silver2127/tpf2-bigmap) in either order. Details:
 [installer/README.md](installer/README.md).
 
-**Linux and Steam Deck (the Windows game under Proton):** download `install_proton.sh` from the same release and run
+**Linux and Steam Deck (the Windows game under Proton), by hand:** download `install_proton.sh` from the [packages release](https://github.com/silver2127/tpf2-multiplayer-packages/releases/latest) and run
 `sh install_proton.sh` (no Python needed; `install_proton.py` is the Python equivalent); it installs the same files into the Proton game. Details, including the lobby
 repair Wine needs: [docs/proton/INSTALL.md](docs/proton/INSTALL.md). The native Linux game has its own
 build on the `linux-native` branch.

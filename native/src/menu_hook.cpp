@@ -980,6 +980,7 @@ static void ComposeLayer(const unsigned char* bg, size_t bgPitch, void* dst, siz
 #define MW_TEXT   RGB(255, 255, 255)
 #define MW_DIM    RGB(190, 205, 218)
 #define MW_YOU    RGB(150, 210, 170)
+#define MW_WARN   RGB(255, 196, 90)     // a problem the player has to fix (BridgeProblem)
 static char g_joinCode[256] = ""; static int g_joinLen = 0; static volatile LONG g_joinFocus = 0;   // 1 = code field, 2 = password field
 static char g_passCode[40] = "";  static int g_passLen = 0;   // optional lobby password (mixed into the session key)
 static char g_username[NAME_MAX] = "";   // the player name (random two-word default, see ensureUsername)
@@ -1248,6 +1249,7 @@ static void mwClose(int w, int id)
     addHit(x, y, sz, sz, id, true);
 }
 
+static const char* BridgeProblem();   // below, before StartLobby
 #include "menu_title_panel.inl"
 #include "menu_title_backdrop.inl"
 
@@ -3955,8 +3957,39 @@ static void TeardownLobby(int waitMs, bool joinThread)
     }
 }
 
+// THE BRIDGE MUST BE LOADED (2026-09-26 bug report: "whenever we build something,
+// it doesn't show up on either end"). The proxy logged "bridge load FAILED (err 126)":
+// tpf2_bridge_mp.dll -- which imports only system DLLs -- was not in the game folder
+// on that PC (antivirus removes it most often). The slice still cancels every local
+// build for its replay and nothing carries the command anywhere, so both players
+// lost every build while the lobby chat, a separate process, worked. No session
+// starts without the bridge now; the panel says why. nullptr = loaded.
+static bool g_bridgeAssumed = false;   // the offline menu tests have no bridge to load
+static const char* BridgeProblem()
+{
+    if (g_bridgeAssumed || GetModuleHandleW(L"tpf2_bridge_mp.dll")) return nullptr;
+    static char why[320];
+    static LONG logged = 0;
+    wchar_t p[MAX_PATH];
+    _snwprintf_s(p, _TRUNCATE, L"%stpf2_bridge_mp.dll", ourDirW());
+    WIN32_FILE_ATTRIBUTE_DATA ad;
+    const bool present = GetFileAttributesExW(p, GetFileExInfoStandard, &ad) != 0;
+    snprintf(why, sizeof(why), present
+        ? "Multiplayer is not working: tpf2_bridge_mp.dll did not load. Reinstall TpF2 Multiplayer and restart the game."
+        : "Multiplayer is not working: tpf2_bridge_mp.dll is missing (antivirus?). Reinstall TpF2 Multiplayer and restart the game.");
+    if (!InterlockedExchange(&logged, 1))
+        Log("[menu] BRIDGE NOT LOADED: %ls %s -- no session can carry builds; hosting and joining are refused\n", p,
+            present ? "is there but did not load (see tpf2_proxy.log for the Windows error)"
+                    : "does not exist (removed by antivirus, or an incomplete install)");
+    return why;
+}
 static void StartLobby(int join)
 {
+    if (const char* why = BridgeProblem()) {   // no bridge: every build would vanish (see BridgeProblem)
+        SetStatus(why);
+        InterlockedExchange(&g_panelDirty, 1);
+        return;
+    }
     if (LobbyRunning()) {
         InterlockedExchange(&g_uiState, 2);
         InterlockedExchange(&g_panelDirty, 1);

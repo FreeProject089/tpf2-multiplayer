@@ -58,6 +58,9 @@ import zlib
 from pathlib import Path, PurePosixPath
 
 REPO = "silver2127/tpf2-multiplayer"
+# From 0.7.0.6 the install files live in a release with the same tag here, and the
+# mod's own releases carry only the launchers; 0.7.0.5 and older keep theirs.
+PACKAGES_REPO = "silver2127/tpf2-multiplayer-packages"
 APP_ID = "1066780"
 GAME_FOLDER = "Transport Fever 2"
 FILES_ASSET = "TpF2Multiplayer-files.zip"
@@ -451,10 +454,16 @@ def http_get(url, limit=200 << 20):
 
 
 def release_info(version):
-    if version:
-        tag = version if version.startswith("v") else "v" + version
-        return json.loads(http_get(f"https://api.github.com/repos/{REPO}/releases/tags/{tag}", 4 << 20))
-    return json.loads(http_get(f"https://api.github.com/repos/{REPO}/releases/latest", 4 << 20))
+    """The release that holds the install files: the packages repository's first,
+    the mod's own for a version published before it (0.7.0.5 and older)."""
+    import urllib.error
+    path = f"releases/tags/{version if version.startswith('v') else 'v' + version}" if version else "releases/latest"
+    for repo in (PACKAGES_REPO, REPO):
+        try:
+            return json.loads(http_get(f"https://api.github.com/repos/{repo}/{path}", 4 << 20))
+        except urllib.error.HTTPError as e:
+            if e.code != 404 or repo == REPO:
+                raise
 
 
 def download_payload(version, cache_root):

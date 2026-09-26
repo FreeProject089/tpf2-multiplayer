@@ -68,7 +68,30 @@ def run(*args, expect=0):
     return out.getvalue()
 
 
+def check_release_source():
+    """0.7.0.6 on: the packages repository first, the mod's own release before it."""
+    import urllib.error
+    asked = []
+    real = install.http_get
+    def fake(url, limit=0):
+        asked.append(url)
+        if install.PACKAGES_REPO in url and "v0.7.0.5" in url:
+            raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+        return b'{"tag_name": "%s"}' % (b"v0.7.0.5" if "v0.7.0.5" in url else b"v0.7.0.6")
+    install.http_get = fake
+    try:
+        assert install.release_info("0.7.0.6")["tag_name"] == "v0.7.0.6" and install.PACKAGES_REPO in asked[-1]
+        assert install.release_info("v0.7.0.5")["tag_name"] == "v0.7.0.5"
+        assert install.PACKAGES_REPO in asked[-2] and f"/repos/{install.REPO}/" in asked[-1]
+        install.release_info(None)
+        assert asked[-1].endswith(f"/repos/{install.PACKAGES_REPO}/releases/latest")
+    finally:
+        install.http_get = real
+    print("PASS: release source: packages repository first, the mod's release for 0.7.0.5 and older")
+
+
 def main():
+    check_release_source()
     assert install.STOCK_ALUT_SHA256 == "3df103ae3d94a6b90c4d2a6d75dcb388cd835f5e3af9962b22c20d4473cfc035"
     install.STOCK_ALUT_SHA256 = hashlib.sha256(STOCK_ALUT).hexdigest()
     with tempfile.TemporaryDirectory() as td:

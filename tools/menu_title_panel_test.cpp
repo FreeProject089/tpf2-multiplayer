@@ -77,6 +77,15 @@ int wmain(int argc,wchar_t** argv)
     g_flagScale=3; g_scExtent={1280,720}; g_uiState=1;
     assert(UiScale()*800<=1281 && UiScale()*560<=721);
     g_scExtent={0,0};
+    // No bridge in the game (2026-09-26: tpf2_bridge_mp.dll removed): Join/Create are
+    // disabled, and a start is refused with the reason instead of a session that loses builds.
+    g_flagScale=1;g_uiState=1;g_titleTab=0;strcpy_s(g_joinCode,"fixture-0");
+    RenderPanelLayer(780,540);check(780,540);assert(!hit(3));
+    g_titleTab=1;RenderPanelLayer(780,540);check(780,540);assert(!hit(2));
+    SetStatus("");StartLobby(0);assert(strstr(g_status,"tpf2_bridge_mp.dll") && !LobbyRunning());
+    snapshot(folder/L"no-bridge.bmp",780,540);
+    g_bridgeAssumed=true;g_titleTab=0;SetStatus("");
+    RenderPanelLayer(780,540);check(780,540);assert(hit(3));
     std::wstring longName(180,L'W');
     for(float scale : {0.5f,0.75f,1.0f,1.5f,2.0f}) {
         g_flagScale=scale; int w=(int)(780*scale),h=(int)(540*scale);

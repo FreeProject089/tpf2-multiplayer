@@ -4,6 +4,7 @@ namespace NativeIo {
 static bool saving=false;
 bool SavingNow(){return saving;}
 }
+static std::string recoveryAction;
 namespace lobby {
 void Snapshot(View* v) { *v=panel::P().view; }
 bool AutoCopyPending(){return false;} bool TakeAutoCopy(std::string*){return false;}
@@ -12,13 +13,13 @@ bool Start(const StartRequest&,std::string*){assert(false);return false;}
 void Leave(){assert(false);} std::string SendChat(const std::string&){assert(false);return {};}
 std::string StartGame(){assert(false);return {};}
 void RefreshSaves(){} std::string SelectSave(const std::string&){return {};}
-std::string RecoveryAction(const std::string&){return {};}
+std::string RecoveryAction(const std::string& s){recoveryAction=s;return {};}
 std::string SetSeparateCompanies(bool){return {};}
 std::string SetCrossplay(bool){return {};}
 std::string SetPublic(bool){return {};}
 std::string AnswerMods(bool){return {};}
 void CycleCompany(int,bool){} bool CopyCode(std::string*){return false;}
-bool PublicRow(int,PubRow*){return false;} void PublicRefresh(){}
+bool PublicRow(int i,PubRow* r){if(i<0 || i>=int(panel::P().pubRows.size()))return false;*r=panel::P().pubRows[i];return true;} void PublicRefresh(){}
 bool OpenLogs(){return false;}
 }
 static bool Has(int id) {
@@ -60,7 +61,7 @@ int main(int argc,char** argv) {
         }
     }
     int w,h;g_flagScale=5;LayoutLocked(1280,720,&w,&h);assert(w<=1280 && h<=720);
-    g_flagScale=0;LayoutLocked(1920,1080,&w,&h);assert(w==780 && h==540);
+    g_flagScale=0;LayoutLocked(1920,1080,&w,&h);assert(w==780 && h==764);
     RenderLocked(w,h);assert(Has(110)&&Has(111)&&Has(8)&&!Has(14)&&!Has(3));
     g_titleTab=1;RenderLocked(w,h);assert(Has(14)&&!Has(8)&&Has(2)&&Has(50)&&Has(51));
     Key(SDLK_TAB,true);assert(g_focus==3);Key(SDLK_TAB,false);
@@ -92,9 +93,19 @@ int main(int argc,char** argv) {
         OnHitLocked(114,&post);assert(g_playerPage==0);
         OnHitLocked(84,&post);assert(g_uiState==3);
         RenderLocked(w,h);CheckHits(w,h);assert(Has(83)&&Has(115)&&Has(9)&&Has(80)&&!Has(28));
+        for(bool world:{false,true})for(const char* phase:{"manual","detected","unavailable","readiness","holding","transferring","loading","error"}) {
+            P().view.inGame=world;P().view.recoveryPhase=phase;
+            RenderLocked(w,h);CheckHits(w,h);assert(Has(87)==world && !Has(4));
+        }
+        P().view.inGame=true;OnHitLocked(87,&post);
+        assert(g_uiState==0 && recoveryAction=="sync_hide");
+        P().view.recoveryPresent=true;
+        assert(!VisibleLocked());RenderLocked(w,h);assert(g_hitCount==0);
+        g_uiState=99;RenderLocked(w,h);assert(g_hitCount==0);
+        P().view.recoveryPresent=false;g_uiState=3;
         P().view.recoveryPhase="detected";RenderLocked(w,h);CheckHits(w,h);assert(Has(85)&&Has(80)&&Has(9));
         P().view.recoveryPhase="loading";P().view.worldIo=true;RenderLocked(w,h);
-        assert(!Has(83)&&!Has(85)&&!Has(80)&&!ChatFocusLocked());
+        assert(!Has(87)&&!Has(83)&&!Has(85)&&!Has(80)&&!ChatFocusLocked());
         P().view.worldIo=false;P().view.recoveryPhase.clear();
         OnHitLocked(83,&post);assert(g_uiState==2);
         P().view.hostSteam=false;RenderLocked(w,h);assert(!Has(51));
@@ -107,6 +118,26 @@ int main(int argc,char** argv) {
         P().view.modsPrompt="Required workshop content";RenderLocked(w,h);
         assert(Has(16)&&Has(17)&&!Has(2)&&!Has(4));P().view.modsPrompt.clear();
     }
+    // Public list: page-local hit IDs must never alias company/cross-play IDs.
+    P().view={};g_uiState=1;g_titleTab=0;P().flagMaster="fixture";
+    for(int i=0;i<20;++i) { lobby::PubRow r;r.name="Game "+std::to_string(i+1);r.code="fixture-"+std::to_string(i);P().pubRows.push_back(r); }
+    for(int screenH:{720,1080})for(float scale:{0.65f,0.8f,1.f,1.4f,5.f}) {
+        g_flagScale=scale;g_serverPage=0;
+        LayoutLocked(screenH*16/9,screenH,&w,&h);RenderLocked(w,h);CheckHits(w,h);
+        assert(g_serverPerPage==12 && Has(71) && !Has(72) && !Has(112) && Has(113) && !Has(50) && !Has(51));
+        Post post;OnHitLocked(71,&post);assert(P().joinCode=="fixture-11");
+        OnHitLocked(113,&post);RenderLocked(w,h);CheckHits(w,h);
+        assert(Has(67) && !Has(68) && Has(112) && !Has(113));
+        OnHitLocked(60,&post);assert(P().joinCode=="fixture-12");
+        OnHitLocked(67,&post);assert(P().joinCode=="fixture-19");
+    }
+    g_flagScale=1;g_serverPage=0;LayoutLocked(1920,1080,&w,&h);assert(h==764);
+    g_titleTab=1;LayoutLocked(1920,1080,&w,&h);assert(h==540);g_titleTab=0;
+    P().flagMaster.clear();LayoutLocked(1920,1080,&w,&h);assert(h==540);
+    RenderLocked(780,540);assert(g_serverPerPage==4);Post browserPost;
+    OnHitLocked(113,&browserPost);RenderLocked(780,540);CheckHits(780,540);
+    assert(Has(63) && !Has(64));OnHitLocked(60,&browserPost);assert(P().joinCode=="fixture-4");
+    P().pubRows.clear();RenderLocked(780,540);assert(g_serverPage==0 && !Has(60) && !Has(113));
     // Exercise the actual SDL filter with the overlay closed. Physical input
     // must delay a hold even when suppression is disabled by default.
     g_uiState=0;P().view.active=false;

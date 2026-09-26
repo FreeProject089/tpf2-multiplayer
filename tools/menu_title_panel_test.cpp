@@ -66,8 +66,8 @@ int wmain(int argc,wchar_t** argv)
     const auto* cached=g_titleBackdrop.data(); PrepareTitleBackdrop(1280,800); assert(cached==g_titleBackdrop.data());
     strcpy_s(g_username,"Alex"); strcpy_s(g_lobbyName,"Alpine railways");
     strcpy_s(g_passCode,"fixture"); g_passLen=7;
-    g_pubCount=8;
-    for(int i=0;i<8;++i) {
+    g_pubCount=20;
+    for(int i=0;i<20;++i) {
         sprintf_s(g_pub[i].name,"Community game %d",i+1); sprintf_s(g_pub[i].code,"fixture-%d",i);
         strcpy_s(g_pub[i].version,"0.6.2.10"); strcpy_s(g_pub[i].type,i%2?"host":"dedicated");
         g_pub[i].players=i+1; g_pub[i].max=16; g_pub[i].locked=i%2;
@@ -82,9 +82,9 @@ int wmain(int argc,wchar_t** argv)
         g_flagScale=scale; int w=(int)(780*scale),h=(int)(540*scale);
         g_uiState=1; g_titleTab=0; g_titleServerPage=0; g_gameUi=0;
         strcpy_s(g_flagMaster,"https://example.invalid"); strcpy_s(g_joinCode,"fixture-0");
-        RenderPanelLayer(w,h); check(w,h); assert(hit(3) && hit(110) && hit(111) && hit(40) && hit(113));
+        RenderPanelLayer(w,h); check(w,h); assert(hit(3) && hit(110) && hit(111) && hit(60) && hit(113));
         if(scale==1) snapshot(folder/L"join.bmp",w,h);
-        OnHit(113); RenderPanelLayer(w,h); check(w,h); assert(hit(112) && hit(47));
+        OnHit(113); RenderPanelLayer(w,h); check(w,h); assert(hit(112) && hit(63) && !hit(64)); // row ids are per page
         OnHit(110); assert(!strcmp(g_joinCode,"fixture-0") && !strcmp(g_passCode,"fixture"));
         OnHit(111); RenderPanelLayer(w,h); check(w,h); assert(hit(2) && hit(14) && !hit(3));
         if(scale==1) snapshot(folder/L"host.bmp",w,h);
@@ -150,6 +150,7 @@ int wmain(int argc,wchar_t** argv)
                 assert(hit(86)==!strcmp(phase,"readiness"));
                 assert(hit(88)==(host && !strcmp(phase,"detected")));
                 assert(!hit(5) && !hit(6) && hit(9) && !hit(20) && !hit(50));
+                assert(hit(83)==world && !hit(4)); // the resync view's x, in game only
                 if(scale==1 && host && world && (!strcmp(phase,"manual") || !strcmp(phase,"loading") || !strcmp(phase,"error")))
                     snapshot(folder/(std::string("resync-")+phase+".bmp"),w,h);
                 g_recoveryRequestedAt=1; RenderPanelLayer(w,h); check(w,h);
@@ -158,8 +159,36 @@ int wmain(int argc,wchar_t** argv)
         }
         strcpy_s(g_recoveryPhase,"readiness");g_recoveryRequestedAt=0;g_readyMine=true;
         RenderPanelLayer(w,h);check(w,h);assert(!hit(86));
+        // x during a running resync hides the view and keeps the resync; saving/loading draws no x
+        g_gameUi=1;g_recoveryPresent=1;g_uiState=3;strcpy_s(g_recoveryPhase,"transferring");
+        RenderPanelLayer(w,h);check(w,h);assert(hit(83));
+        OnHit(83);assert(g_uiState==0 && g_recoveryPresent && g_recoveryHidden);
+        { bool quiet=false; const LONG show=g_showOverlay; g_showOverlay=0;   // hidden: the game shows, no panel
+          assert(!OverlayWanted(quiet)); g_showOverlay=show; }
+        RenderPanelLayer(w,h);assert(g_hitCount==0);                           // page 0 draws nothing clickable
+        g_recoveryWorldIo=1;g_uiState=3;RenderPanelLayer(w,h);check(w,h);assert(!hit(83));g_recoveryWorldIo=0;
+        // x on a preflight notice dismisses it like Close
+        strcpy_s(g_recoveryPhase,"detected");g_uiState=3;RenderPanelLayer(w,h);check(w,h);
+        OnHit(83);assert(g_uiState==0 && !g_recoveryPresent && !g_recoveryHidden);
+        g_uiState=3;g_recoveryPresent=0;
         g_stages.clear();g_gameUi=0;g_recoveryPhase[0]=0;
     }
+    // The Join page is taller (764, not 540) and shows 12 public games to a page
+    // (2026-09-26, user: the server list was "getting quite cramped" at 4).
+    g_flagScale=1;g_uiState=1;g_titleTab=0;g_gameUi=0;g_titleServerPage=0;g_joinCode[0]=0;
+    strcpy_s(g_flagMaster,"https://example.invalid");
+    g_scExtent={1920,1080};g_panelW=1920;g_panelH=1080;PanelLayout();assert(g_copyH==764);
+    g_titleTab=1;PanelLayout();assert(g_copyH==540);g_titleTab=0;
+    g_flagMaster[0]=0;PanelLayout();assert(g_copyH==540);strcpy_s(g_flagMaster,"https://example.invalid");
+    RenderPanelLayer(780,764);check(780,764);
+    for(int r=0;r<12;++r) assert(hit(60+r));
+    assert(!hit(72) && hit(113) && !hit(112));
+    snapshot(folder/L"join-browser.bmp",780,764);
+    OnHit(71);assert(!strcmp(g_joinCode,"fixture-11"));     // the last row of page 1 is game 12
+    OnHit(113);RenderPanelLayer(780,764);check(780,764);assert(hit(67) && !hit(68) && hit(112) && !hit(113));
+    OnHit(60);assert(!strcmp(g_joinCode,"fixture-12"));     // the first row of page 2 is game 13
+    OnHit(67);assert(!strcmp(g_joinCode,"fixture-19"));
+    g_scExtent={0,0};g_panelW=780;g_panelH=580;g_titleServerPage=0;g_joinCode[0]=0;g_flagMaster[0]=0;
     // Representative two-player previews, separate from the stress fixtures above.
     g_flagScale=1;g_uiState=3;g_gameUi=0;g_isHost=1;g_titlePlayerPage=0;
     g_players={"Alex","Sam"};g_you="Alex";g_host="Alex";g_companies={1,2};

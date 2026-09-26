@@ -111,7 +111,7 @@ static const size_t CHAT_LINES = 14;
 static const int QUIT_WAIT_MS = 1500;           // menu_hook.cpp TeardownLobby
 static const int TERM_WAIT_MS = 2000;           // NETPUNCH.md 3.4
 static const uint64_t PUB_EVERY_MS = 10000;     // a third of the master's 30 s TTL
-static const int PUB_ROWS = 8;
+static const int PUB_ROWS = 48;
 static const int PUB_TIMEOUT_MS = 20000;        // the program's own GET gives up after 5 s (name lookup aside)
 // What chat, START GAME, PUBLIC and the mods answer say to a dead lobby
 // (Model::dead), in place of "Lobby is starting...", which would replace the
@@ -144,7 +144,7 @@ struct Model {
     std::string selectedSave;
     bool startPending=false;
     std::string recoveryPhase,recoveryDetail,recoveryStep,recoveryOperation,readyToken;
-    bool recoveryPresent=false,readyMine=false;
+    bool recoveryHidden=false,recoveryPresent=false,readyMine=false;
     int readyCount=0,readyTotal=0;
     uint64_t recoveryVersion=0,recoveryRequestedAt=0;
     std::vector<std::string> players, stages;
@@ -1607,6 +1607,7 @@ static void Dispatch(const std::string& line)
                 m.recoveryOperation=JStr(ev,"operation");m.recoveryPhase=phase;
                 m.recoveryDetail=OneLine(JStr(ev,"detail"));m.recoveryStep=JStr(ev,"step");
                 m.recoveryPresent=phase!="complete";
+                if(phase=="complete" || phase=="error")m.recoveryHidden=false;
                 if(phase=="complete") {m.lobbyDone=true;m.startPending=false;g_captures=true;}
             } else if(ty=="sync_feedback")m.recoveryDetail=OneLine(JStr(ev,"detail"));
             else if(ty=="sync_ready_state") {
@@ -1614,6 +1615,7 @@ static void Dispatch(const std::string& line)
                     m.recoveryPhase="readiness";m.recoveryPresent=true;m.readyToken=JStr(ev,"token");
                     m.readyCount=JInt(ev,"ready_count",0);m.readyTotal=JInt(ev,"total",0);m.readyMine=JInt(ev,"is_ready",0)!=0;
                     m.recoveryDetail.clear();
+                    if(!m.readyMine)m.recoveryHidden=false;
                 } else if(m.recoveryPhase=="readiness") {
                     m.recoveryPhase=phase=="cancelled"?(JStr(ev,"kind")=="sync_retry"?"error":"detected"):"holding";
                     if(phase=="cancelled")m.recoveryDetail="The player list changed. Request readiness again.";
@@ -1621,6 +1623,7 @@ static void Dispatch(const std::string& line)
             } else {
                 const bool idle=m.recoveryPhase.empty()||m.recoveryPhase=="complete"||m.recoveryPhase=="detected"||m.recoveryPhase=="unavailable";
                 if(idle) {
+                    m.recoveryHidden=false;
                     m.recoveryPhase=phase=="clear"?"":phase;m.recoveryPresent=phase!="clear";
                     m.recoveryDetail.clear();m.recoveryStep.clear();
                 }
@@ -2242,6 +2245,31 @@ static void LobbyThread()
 // The lobby program fetches <master_url>/list (NETPUNCH.md 3.6): exit 0 with
 // the body on stdout, or exit 1 with one line saying why ("HTTP 503"). No HTTP
 // or TLS in the game process.
+static bool ParsePublic(const std::string& body, std::vector<PubRow>* rows, std::string* note)
+{
+    Json doc;
+    if (!ParseJson(body, &doc) || doc.type != Json::Obj) { *note = "Server browser unavailable (unreadable list)"; return false; }
+    if (const Json* sv = doc.Get("servers"))
+        for (const Json& o : sv->items) {
+            if ((int)rows->size() >= PUB_ROWS) break;
+            if (o.type != Json::Obj) continue;
+            PubRow row;
+            row.code = JStr(o, "code");
+            if (row.code.empty() || row.code.size() > 255) continue;
+            row.name = Cap(OneLine(JStr(o, "name")), 127);
+            row.game = Cap(OneLine(JStr(o, "game")), 63);
+            row.type = Cap(OneLine(JStr(o, "type")), 15);
+            row.version = Cap(OneLine(JStr(o, "version")), 23);
+            row.players = (int)JInt(o, "players", 0);
+            row.max = (int)JInt(o, "max", 8);
+            row.age = (int)JInt(o, "age", 0);
+            row.locked = JInt(o, "locked", 0) != 0;
+            rows->push_back(row);
+        }
+    if (rows->empty()) *note = "No public games right now.";
+    return true;
+}
+
 static bool FetchPublic(std::vector<PubRow>* rows, std::string* note)
 {
     Program prog;
@@ -2326,27 +2354,7 @@ static bool FetchPublic(std::vector<PubRow>* rows, std::string* note)
         *note = "Server browser unavailable (" + Cap(OneLine(why), 80) + ")";
         return false;
     }
-    Json doc;
-    if (!ParseJson(body, &doc) || doc.type != Json::Obj) { *note = "Server browser unavailable (unreadable list)"; return false; }
-    if (const Json* sv = doc.Get("servers"))
-        for (const Json& o : sv->items) {
-            if ((int)rows->size() >= PUB_ROWS) break;
-            if (o.type != Json::Obj) continue;
-            PubRow row;
-            row.code = JStr(o, "code");
-            if (row.code.empty() || row.code.size() > 255) continue;
-            row.name = Cap(OneLine(JStr(o, "name")), 127);
-            row.game = Cap(OneLine(JStr(o, "game")), 63);
-            row.type = Cap(OneLine(JStr(o, "type")), 15);
-            row.version = Cap(OneLine(JStr(o, "version")), 23);
-            row.players = (int)JInt(o, "players", 0);
-            row.max = (int)JInt(o, "max", 8);
-            row.age = (int)JInt(o, "age", 0);
-            row.locked = JInt(o, "locked", 0) != 0;
-            rows->push_back(row);
-        }
-    if (rows->empty()) *note = "No public games right now.";
-    return true;
+    return ParsePublic(body, rows, note);
 }
 
 static void PubThread()
@@ -2527,11 +2535,20 @@ std::string RecoveryAction(const std::string& command) {
     uint64_t gen;std::string operation,token;
     {
         std::lock_guard<std::mutex> lk(S().mtx);auto& m=S().m;
+        // These are local view actions, including while a request is pending.
+        if(command=="sync_show") {m.recoveryHidden=false;return {};}
+        if(command=="sync_hide") {
+            const auto& p=m.recoveryPhase;
+            const bool notice=p.empty()||p=="manual"||p=="detected"||p=="unavailable"||p=="complete";
+            m.recoveryHidden=!notice;
+            if(notice)m.recoveryPresent=false;
+            return {};
+        }
         if(!m.active||m.dead)return kNotRunning;
         if(m.recoveryRequestedAt && NowMs()-m.recoveryRequestedAt<5000)return "Waiting for the lobby...";
         if(command=="sync_dismiss") {
             if(!(m.recoveryPhase.empty() || m.recoveryPhase=="manual" || m.recoveryPhase=="detected" || m.recoveryPhase=="unavailable" || m.recoveryPhase=="complete"))return "A world operation is already running.";
-            m.recoveryPresent=false;return {};
+            m.recoveryPresent=false;m.recoveryHidden=false;return {};
         }
         if(command=="sync_decline") {
             if(!m.isHost || m.recoveryPhase!="detected")return "Only the host can decline a detected resync.";
@@ -2664,7 +2681,7 @@ void Snapshot(View* v)
     v->transferDetail=m.transferDetail;v->transferHint=m.transferHint;
     v->recoveryPhase=m.recoveryPhase;v->recoveryDetail=m.recoveryDetail;v->recoveryStep=m.recoveryStep;
     v->lobbyReady=m.lobbyReady;v->active=m.active&&!m.dead;v->inGame=g_gameUiSeen.load();
-    v->recoveryPresent=m.recoveryPresent;v->recoveryRequested=m.recoveryRequestedAt && NowMs()-m.recoveryRequestedAt<5000;
+    v->recoveryHidden=m.recoveryHidden;v->recoveryPresent=m.recoveryPresent;v->recoveryRequested=m.recoveryRequestedAt && NowMs()-m.recoveryRequestedAt<5000;
     v->readyMine=m.readyMine;v->readyCount=m.readyCount;v->readyTotal=m.readyTotal;v->recoveryVersion=m.recoveryVersion;
     v->saves=m.saves;v->selectedSave=m.selectedSave;v->startPending=m.startPending;
     v->crossplay = m.crossplay;

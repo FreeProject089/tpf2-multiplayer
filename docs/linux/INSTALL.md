@@ -182,7 +182,7 @@ the script fallback. Logs are in `<data home>/tpf2mp/data/tpf2mp_host.log`.
   - the lobby's logs;
   - crash dumps written since the last save.
 
-  This also works after a crash: just start the game again. The last 2 are kept. `about.txt` in each
+  This also works after a crash: just start the game again. The last 5 of each kind (startup and OPEN LOGS) are kept. `about.txt` in each
   folder lists what is there, with sizes.
   Create `tpf2mp_keep_logs.txt` in the runtime data folder to keep every archive
   and append mod/lobby logs across starts. Remove it to restore normal retention.
@@ -356,3 +356,37 @@ by default and requires the verified town-seed hook. Compare captures from the
 same session with `python3 tools/town_trace_diff.py NATIVE_TRACE WINDOWS_TRACE`;
 Windows enables its half with `towntrace=1` in `tpf2_slice.cfg`.
 See [integration and validation limits](UPSTREAM_dev_0610033.md).
+
+## Release 0.7.0.3 (dev d8a3ce57)
+
+Native Linux is at **0.7.0.3**: the `.run` installer, the tarball name, the
+staged `VERSION` file and the `BUILDINFO` header all take it from
+`installer/VERSION`, and the lobby handshake (`LOBBY_VERSION`) matches. Every
+participant, including a dedicated server, needs the same version -- the gate is
+an exact release match and a peer without a version fails closed.
+
+The release carries no new native code: it is the version stamp for the fixes
+the `0610033`, `11a98cc`/`e43d01dd` and earlier integrations already ported. The
+Linux behaviour the release notes promise was rechecked against the unmodified
+build-35924 ELF and passes; the octree depth, town-trace and math-parity notes
+elsewhere in this file still apply unchanged.
+See [integration evidence and validation limits](UPSTREAM_dev_d8a3ce57.md).
+
+The [dev `122a0ce9` integration](UPSTREAM_dev_122a0ce9.md) adds the native resync
+view’s in-game x. Closing a running resync hides its view while recovery
+continues; Manage Lobby reopens it. Errors and unanswered Ready requests
+bring it back automatically. Saving/loading suppresses the x.
+
+Since [dev 45183ac6](UPSTREAM_dev_45183ac6.md), native OPEN LOGS and startup
+archives include the installed version, kernel/time zone, module GNU build IDs,
+and copied state/config files (last 8 MiB each, after logs). Lobby JSON/JSONL/text
+copies mask invitation/password fields. Saves and terrain dumps are excluded.
+The native menu uses xdg-open and reports the native archive location.
+
+The [dev `96795a8b` integration](UPSTREAM_dev_96795a8b.md) expands the native public
+browser to eight games per page and up to 32 games, and completes archive
+runtime/boot metadata and standalone collector credential masking.
+
+The [dev `01044521` integration](UPSTREAM_dev_01044521.md) expands the native public
+browser to twelve games per page and up to 48 games, and removes the legacy
+panel renderer. Closing a running resync leaves the game visible.

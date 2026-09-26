@@ -208,3 +208,36 @@ preserving native Linux guidance. Runtime behavior is unchanged.
 The [dev `0610033` integration](docs/linux/UPSTREAM_dev_0610033.md) fixes native
 family ordering to recognize all 28 node lists and adds the opt-in town trace.
 Static and fixture checks pass; live validation was blocked at lab startup.
+
+The [dev `e43d01dd` integration](docs/linux/UPSTREAM_dev_e43d01dd.md) carries
+upstream's per-tick EDEMO node index and the stop-replay registration that stops
+a catch-up scan re-shipping replayed signals and stops. Both are shared Lua; the
+native Linux slice already emits the EDEMO and STOPX/STOPXDEL records they rely
+on, so no native change was needed. No local live run was possible.
+
+The [dev `d8a3ce57` integration](docs/linux/UPSTREAM_dev_d8a3ce57.md) is
+upstream's **release 0.7.0.3** and carries no code. It stamps the native release
+0.7.0.3 (`installer/VERSION`, which `tools/linux/build_release.sh` reads for the
+`.run` installer, and the shared `LOBBY_VERSION` handshake), advances the Lua
+verifier and the release provenance line to this target, and stages the two
+missing integration records. Each Linux claim the notes make -- all 28 sorted
+node lists, the extra RNG sites, Windows float math, `TPF2MP_TOWN_TRACE=1`,
+octree depths 12/13, terrain compression on by default -- was rechecked against
+the unmodified game ELF and passes. No local live run was possible.
+
+The [dev `122a0ce9` integration](docs/linux/UPSTREAM_dev_122a0ce9.md) adds the native resync
+view’s in-game x. Closing a running resync hides its view while recovery
+continues; Manage Lobby reopens it. Errors and unanswered Ready requests
+bring it back automatically. Saving/loading suppresses the x.
+
+The [dev `45183ac6` integration](docs/linux/UPSTREAM_dev_45183ac6.md) adds
+native OPEN LOGS version/ELF identities, state/config snapshots and masked
+lobby streams, and retains five archives per kind. Version remains 0.7.0.3.
+
+The [dev `96795a8b` integration](docs/linux/UPSTREAM_dev_96795a8b.md) expands the native public
+browser to eight games per page and up to 32 games, and completes archive
+runtime/boot metadata and standalone collector credential masking.
+
+The [dev `01044521` integration](docs/linux/UPSTREAM_dev_01044521.md) expands the native public
+browser to twelve games per page and up to 48 games, and removes the legacy
+panel renderer. Closing a running resync leaves the game visible.

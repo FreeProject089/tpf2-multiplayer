@@ -581,6 +581,14 @@ static inline bool Tpf2mpArchiveLogs(bool previousSession, const wchar_t* gameDi
             wchar_t src[MAX_PATH];
             _snwprintf_s(src, _TRUNCATE, L"%s%s\\game_stdout.txt", out->root, newest);
             place(src, L"previous_run_game_stdout.txt", L"game log of the previous run (from the newest -previous archive)", false);
+            // ... and its crash dumps. The archive made at the restart already
+            // counted them (the "since the last archive" bound), so step 3 finds
+            // none: two 2026-09-26 reports of a crash while loading a world came
+            // with the log of the run that died and without its dump.
+            wchar_t dir[MAX_PATH], shownDir[MAX_PATH];
+            _snwprintf_s(dir, _TRUNCATE, L"%s%s\\", out->root, newest);
+            _snwprintf_s(shownDir, _TRUNCATE, L"logs\\%s", newest);
+            each(dir, L"crash_*", L"previous_run_", shownDir, false);
         }
     }
     // 5. state: what each side believed, beside what it logged. Last, so a big

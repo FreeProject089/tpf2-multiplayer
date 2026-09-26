@@ -1522,7 +1522,7 @@ function data()
 				-- message. Width is in BYTES, so a line of non-ASCII wraps a little
 				-- early -- harmless, and it keeps this off the per-frame path.
 				function CM.chatWrap(lines, width)
-					width = width or 64
+					width = width or 52   -- the 492 px log holds about 52 wide characters (64 ran off it)
 					if width < 12 then width = 12 end
 					local out = {}
 					for _, line in ipairs(lines) do

@@ -45,17 +45,25 @@ static void titleAction(int x,int y,int w,const wchar_t* label,int id,bool enabl
     titleText(x,y,w,S(32),caption.c_str(),13,enabled?MW_TEXT:MW_DIM,DT_CENTER);
     if(enabled) addHit(x,y,w,S(32),id,true);
 }
+#ifndef TPF2MP_VERSION_STR
+#define TPF2MP_VERSION_STR L"0.7.7.0"
+#endif
+
 static void titleHeading(int w,const wchar_t* label,int closeId)
 {
     (void)closeId;
     std::wstring caption(label); for(auto& c:caption) c=towupper(c);
     titleText(S(25),S(10),w-S(50),S(32),caption.c_str(),16);
+    if (!wcscmp(label, L"MULTIPLAYER")) {
+        titleText(S(175), S(10), S(120), S(32), L"v" TPF2MP_VERSION_STR, 13, MW_DIM, DT_LEFT | DT_VCENTER);
+    }
 }
 static void titleStatus(int w,int h)
 {
     char value[256]="";
     if(g_csInit) { EnterCriticalSection(&g_statusCs); strcpy_s(value,g_transferDetail[0]?g_transferDetail:g_status); LeaveCriticalSection(&g_statusCs); }
-    titleText(S(25),h-S(29),w-S(50),S(22),wideOf(value).c_str(),12,MW_DIM);
+    titleText(S(25),h-S(29),w-S(160),S(22),wideOf(value).c_str(),12,MW_DIM);
+    titleText(w-S(135),h-S(29),S(110),S(22),L"v" TPF2MP_VERSION_STR,12,MW_DIM,DT_RIGHT|DT_VCENTER);
 }
 static void titleModPrompt(int w,int h)
 {

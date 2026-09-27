@@ -1,8 +1,8 @@
 """A game far behind the others turns its player's actions off, on Lua 5.2, no game.
 
-A command's stamp pays at most CM.MAX_LEAD (15 units) of lead over the fastest game, so a game
-further behind than that would stamp its player's actions into the other games' past. Since
-2026-09-15 inject.lua drops those actions until the game is back within 2 units.
+Since 2026-09-26 commands pay the fastest peer's full sane lead. The action gate
+remains to avoid clicks waiting through a long catch-up: since 2026-09-15 it drops
+player actions until the game is back within 2 units.
 
 This runs the real inject.lua (CM.actionsBlockTick and CM.pollInject) and the real
 CM.fastestPeerClock cut out of net.lua against stubbed captures:

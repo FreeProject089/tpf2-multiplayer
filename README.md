@@ -322,3 +322,8 @@ The [dev `0047c19f` integration](docs/linux/UPSTREAM_dev_0047c19f.md) adds share
 cargo-filter replay records. Native filter capture remains **unported**:
 Linux line edits can still lose filters. The lab could not start for the
 required property/ABI probe; this integration is partial.
+
+The [dev `06188ea5` integration](docs/linux/UPSTREAM_dev_06188ea5.md) keeps
+command stamps ahead of the fastest peer while a joiner catches up, with a
+600-unit sanity cutoff. Shared Lua tests cover the change; no live multiplayer
+result is claimed. Version remains 0.7.0.5.

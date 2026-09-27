@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the cumulative Linux Lua integration: Windows dev 0047c19f (release 0.7.0.5)."""
+"""Verify the cumulative Linux Lua integration: Windows dev 06188ea5 (release 0.7.0.5)."""
 import argparse
 import hashlib
 from pathlib import Path
@@ -7,12 +7,12 @@ import subprocess
 import sys
 
 REPO = Path(__file__).resolve().parents[2]
-REFERENCE = "0047c19fdb4050dacb5e54d4108f99af920838ce"
+REFERENCE = "06188ea5f3773f305dffe449484bd9330c139c98"
 INCOMING = REFERENCE
 INCOMING_FILES = set()
 PREFIX = "mod/mp_lockstep_1/"
 # Native cancelled rename/color records explicitly request origin replay.
-MERGED_SHA256 = {"res/scripts/mp/inject.lua": "298bc0027f3571f82bf1085ea8fb2078a58118a6849c63bdca0ba698238965bf"}
+MERGED_SHA256 = {"res/scripts/mp/inject.lua": "88e129a55b5d1d9138f786116b3f5ecc5d9e589c1c556cf5d9ca1939ad088822"}
 
 
 def main():
@@ -40,7 +40,7 @@ def main():
         if missing or extra or different:
             return 1
         manifest = "".join(f"{hashlib.sha256(actual[p]).hexdigest()}  {p}\n" for p in sorted(expected))
-        print(f"PASS: {len(expected)} Lua files: exact Windows dev 0047c19f (0.7.0.5) except {len(MERGED_SHA256)} pinned cumulative merges")
+        print(f"PASS: {len(expected)} Lua files: exact Windows dev 06188ea5 (0.7.0.5) except {len(MERGED_SHA256)} pinned cumulative merges")
         print("Lua manifest sha256: " + hashlib.sha256(manifest.encode()).hexdigest())
         # The glyph overlays are runtime dependencies of the shared stylesheet.
         # Check packaged copies too: Lua equality alone cannot catch omitted assets.
@@ -55,7 +55,7 @@ def main():
             print(f"FAIL: missing, extra or changed HUD glyph: {p}", file=sys.stderr)
         if bad_glyphs:
             return 1
-        print(f"PASS: {len(expected_glyphs)} HUD glyph textures exact Windows dev 0047c19f (0.7.0.5)")
+        print(f"PASS: {len(expected_glyphs)} HUD glyph textures exact Windows dev 06188ea5 (0.7.0.5)")
         return 0
     except (OSError, subprocess.CalledProcessError) as error:
         print(f"Cannot verify Windows Lua baseline: {error}", file=sys.stderr)

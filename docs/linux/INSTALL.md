@@ -475,3 +475,8 @@ The [dev `0047c19f` integration](UPSTREAM_dev_0047c19f.md) adds shared cargo-fil
 wire/replay support but leaves native filter capture unported. Linux line
 edits can still lose stop filters. Version remains 0.7.0.5; no loaded-game
 cargo-filter parity has been demonstrated.
+
+The [dev `06188ea5` integration](UPSTREAM_dev_06188ea5.md) keeps
+command stamps ahead of the fastest peer while a joiner catches up, with a
+600-unit sanity cutoff. Shared Lua tests cover the change; no live multiplayer
+result is claimed. Version remains 0.7.0.5.

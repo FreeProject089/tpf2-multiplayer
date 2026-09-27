@@ -49,13 +49,90 @@ struct LineAlt  { int32_t station, terminal; };                   // StationTerm
 struct LineWp   { int32_t entity, index; };                        // transport::SignalId
 // waits are the engine's floats, any value it holds (the cargo-wait slider goes
 // past the 36000 s this once refused, natively on the host only -- 2026-09-16)
-struct LineStop { int32_t sg, station, terminal, loadMode; float minWait, maxWait; int nAlt; std::vector<LineAlt> alt; int nWp; std::vector<LineWp> wp; };
+// The stop's cargo filter, Line::Stop::stopConfig at stop+0x50 (2026-09-26: "cargo
+// filters are not working" -- the replayed update never carried it, so every
+// instance, the clicker included, lost the filter the moment it was set). The Lua
+// type, probed live: load and unload are lists of integers (cargo types), maxLoad a
+// list of floats. In memory, three std::vectors in that order (the binding names
+// them load, unload, maxLoad), 0x18 bytes each, 0x50..0x98. INFERRED from that and
+// the stop's size; checked on every read (a well-formed vector, cargo indices under
+// 1024, finite non-negative loads), and a stop that fails ships without its filter
+// (as before) with the raw bytes in the log.
+struct LineStop { int32_t sg, station, terminal, loadMode; float minWait, maxWait; int nAlt; std::vector<LineAlt> alt; int nWp; std::vector<LineWp> wp;
+                  bool cfgOk; std::vector<int32_t> cfgLoad, cfgUnload; std::vector<float> cfgMax; };
 static const uint64_t LINE_ANY_SPAN = ~0ull;   // ReadVec's cap, not used as one
 static char g_lineDecodeWhy[200] = "";
 #define LINE_REFUSE(...) do { _snprintf_s(g_lineDecodeWhy, sizeof(g_lineDecodeWhy), _TRUNCATE, __VA_ARGS__); return false; } while (0)
 struct LineDecode { float wait; int n; std::vector<LineStop> st; };
 static LineDecode g_lineDecode;
 static bool       g_lineDecodeOk = false;
+
+static bool ReadCfgVec(const uint8_t* at, std::vector<uint32_t>* out)
+{
+    uint64_t vb = 0, ve = 0, vc = 0;
+    memcpy(&vb, at, 8); memcpy(&ve, at + 8, 8); memcpy(&vc, at + 16, 8);
+    out->clear();
+    if (vb == 0 && ve == 0 && vc == 0) return true;
+    if (ve < vb || vc < ve || (ve - vb) % 4 || (ve - vb) > 4 * 1024 || !IsHeapPtr(vb)) return false;
+    if (ve == vb) return true;
+    if (!Readable((void*)vb, (size_t)(ve - vb))) return false;
+    out->resize((size_t)((ve - vb) / 4));
+    memcpy(out->data(), (void*)vb, (size_t)(ve - vb));
+    return true;
+}
+static void DecodeStopCargo(const uint8_t* b, int stopNo, LineStop* t)
+{
+    std::vector<uint32_t> ld, ul, mx;
+    t->cfgOk = false;
+    t->cfgLoad.clear(); t->cfgUnload.clear(); t->cfgMax.clear();
+    bool ok = ReadCfgVec(b + 0x50, &ld) && ReadCfgVec(b + 0x68, &ul) && ReadCfgVec(b + 0x80, &mx);
+    for (uint32_t v : ld) if (v >= 1024) ok = false;
+    for (uint32_t v : ul) if (v >= 1024) ok = false;
+    for (uint32_t v : mx) { float f; memcpy(&f, &v, 4); if (!(f >= 0.f) || f > 1e30f) ok = false; }
+    if (!ok) {
+        static LONG warned = 0;
+        if (InterlockedIncrement(&warned) <= 8) {
+            char hex[0x58 * 3 + 1]; int o = 0;
+            for (int i = 0; i < 0x58; i++) o += snprintf(hex + o, sizeof(hex) - o, "%02x%s", b[0x50 + i], (i % 8 == 7) ? " " : "");
+            Log("[slice] line stop %d: cargo filter at +0x50 not three well-formed vectors -- shipped WITHOUT its filter; raw +0x50: %s\n", stopNo, hex);
+        }
+        return;
+    }
+    for (uint32_t v : ld) t->cfgLoad.push_back((int32_t)v);
+    for (uint32_t v : ul) t->cfgUnload.push_back((int32_t)v);
+    for (uint32_t v : mx) { float f; memcpy(&f, &v, 4); t->cfgMax.push_back(f); }
+    t->cfgOk = true;
+    if (!ld.empty() || !ul.empty() || !mx.empty()) {
+        static LONG shown = 0;
+        if (InterlockedIncrement(&shown) <= 16) {
+            char s[600]; int o = 0;
+            o += snprintf(s + o, sizeof(s) - o, "load=[");
+            for (size_t i = 0; i < t->cfgLoad.size() && o < 180; i++) o += snprintf(s + o, sizeof(s) - o, "%s%d", i ? "," : "", t->cfgLoad[i]);
+            o += snprintf(s + o, sizeof(s) - o, "] unload=[");
+            for (size_t i = 0; i < t->cfgUnload.size() && o < 360; i++) o += snprintf(s + o, sizeof(s) - o, "%s%d", i ? "," : "", t->cfgUnload[i]);
+            o += snprintf(s + o, sizeof(s) - o, "] maxLoad=[");
+            for (size_t i = 0; i < t->cfgMax.size() && o < 540; i++) o += snprintf(s + o, sizeof(s) - o, "%s%g", i ? "," : "", t->cfgMax[i]);
+            Log("[slice] line stop %d cargo filter: %s]\n", stopNo, s);
+        }
+    }
+}
+// " cfg=<stop>:<load>|<unload>|<maxLoad>,..." for the stops with a filter; each list
+// "_"-joined (cargo indices as integers, loads as %.9g)
+static void WriteLineCargo(FILE* f, const LineDecode& d)
+{
+    bool first = true;
+    for (int i = 0; i < d.n; i++) {
+        const LineStop& t = d.st[i];
+        if (!t.cfgOk || (t.cfgLoad.empty() && t.cfgUnload.empty() && t.cfgMax.empty())) continue;
+        fprintf(f, "%s%d:", first ? " cfg=" : ",", i + 1);
+        first = false;
+        for (size_t k = 0; k < t.cfgLoad.size(); k++) fprintf(f, "%s%d", k ? "_" : "", t.cfgLoad[k]);
+        fputc('|', f);
+        for (size_t k = 0; k < t.cfgUnload.size(); k++) fprintf(f, "%s%d", k ? "_" : "", t.cfgUnload[k]);
+        fputc('|', f);
+        for (size_t k = 0; k < t.cfgMax.size(); k++) fprintf(f, "%s%.9g", k ? "_" : "", t.cfgMax[k]);
+    }
+}
 
 static void WriteLineWaypoints(FILE* f, const LineDecode& d)
 {
@@ -143,6 +220,7 @@ static bool DecodeLineAt(uint64_t line, uint64_t vecOff, LineDecode* out)
             memcpy(&t.wp[w], (void*)(wb + w * 8), 8);
             if (t.wp[w].entity <= 0 || t.wp[w].index < 0) LINE_REFUSE("stop %d waypoint %d: entity=%d index=%d", i + 1, w + 1, t.wp[w].entity, t.wp[w].index);
         }
+        DecodeStopCargo(b, i + 1, &t);
     }
     return true;
 }

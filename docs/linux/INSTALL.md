@@ -470,3 +470,8 @@ The [dev `ceee11b1` integration](UPSTREAM_dev_ceee11b1.md) wraps native lobby
 chat to its measured width, including long links, and retains the newest
 messages that fit. In-game Lua chat uses a 52-byte default wrap width.
 Version remains 0.7.0.5; live rendering validation remains outstanding.
+
+The [dev `0047c19f` integration](UPSTREAM_dev_0047c19f.md) adds shared cargo-filter
+wire/replay support but leaves native filter capture unported. Linux line
+edits can still lose stop filters. Version remains 0.7.0.5; no loaded-game
+cargo-filter parity has been demonstrated.

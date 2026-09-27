@@ -1354,6 +1354,7 @@ function CM.pollInject()
 						.. (sx and string.format(",%.1f,%.1f", sx, sy) or "")
 					alts[#alts + 1] = table.concat(al, "/")
 				end
+				if not bad and CM.lineCaptureCargo then CM.lineCaptureCargo(line, stops) end
 				if not bad and CM.lineCaptureWaypoints then CM.lineCaptureWaypoints(line, stops) end
 				if armed ~= 1 then
 					CM.pendingLineCreates[#CM.pendingLineCreates + 1] = { since = CM.gameTime() or 0 }
@@ -1452,6 +1453,7 @@ function CM.pollInject()
 								.. (sx and string.format(",%.1f,%.1f", sx, sy) or "")
 							alts[#alts + 1] = table.concat(al, "/")
 						end
+						if not bad and CM.lineCaptureCargo then CM.lineCaptureCargo(line, stops) end
 						if not bad and CM.lineCaptureWaypoints then CM.lineCaptureWaypoints(line, stops) end
 						-- asg=<0|1>: this click ran the editor's platform assignment (a station or
 						-- waypoint added); every instance re-runs it on the replayed list at the

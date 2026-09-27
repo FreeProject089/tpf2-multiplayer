@@ -317,3 +317,8 @@ The [dev `ceee11b1` integration](docs/linux/UPSTREAM_dev_ceee11b1.md) wraps
 native lobby chat to its measured width and retains the newest messages that
 fit. Shared in-game chat now wraps at 52 bytes. Offline rendering tests pass;
 the lab launch was blocked before game startup.
+
+The [dev `0047c19f` integration](docs/linux/UPSTREAM_dev_0047c19f.md) adds shared
+cargo-filter replay records. Native filter capture remains **unported**:
+Linux line edits can still lose filters. The lab could not start for the
+required property/ABI probe; this integration is partial.

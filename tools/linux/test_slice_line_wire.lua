@@ -64,3 +64,89 @@ local waits = decode(encode {op="LCREATE", at=1, origin="A", seq=4,
     wait=captured.wait, stops=captured.stops, armed=1})
 assert(cm.waitNum(waits.wait) == math.huge and waits.stops == captured.stops)
 print("slice line wire: fractional/negative/infinite waits passed")
+
+-- Cargo regression: production capture/codec/build/snapshot code, with a table
+-- model of the game API. This does not prove the engine's userdata properties.
+package.path = root .. "/mod/mp_lockstep_1/res/scripts/?.lua;" .. package.path
+local cargoCM, cargoK = {}, {INSTANCE="A", INJECT_FILE="test", LINE_EDIT_FREE=0}
+module("net", cargoCM, cargoK)
+module("lines", cargoCM, cargoK)
+module("inject", cargoCM, cargoK)
+local cfg = {load={1,4}, unload={2}, maxLoad={0.25,1}}
+local suffix = "^1_4|2|0.25_1"
+assert(cargoCM.lineCargoSuffix(cfg) == suffix)
+assert(cargoCM.lineCargoSuffix(nil) == "")
+assert(cargoCM.lineCargoSuffix({load={},unload={},maxLoad={}}) == "")
+local base = "1.00,2.00,0,0,0,0,180"
+assert(cargoCM.stopsSigEqual(base .. suffix, "1.50,2.00,0,0,0,0,180" .. suffix))
+assert(not cargoCM.stopsSigEqual(base .. suffix, base .. "^1|2|0.25_1"))
+assert(not cargoCM.stopsSigEqual(base .. suffix, base))
+local records = {base, base}
+cargoCM.lineCaptureCargo(" cfg=2:1_4|2|0.25_1", records)
+assert(records[1] == base and records[2] == base .. suffix)
+assert(not pcall(cargoCM.lineCaptureCargo, " cfg=3:1|2|3", records))
+assert(not pcall(cargoCM.lineCaptureCargo, " cfg=1:bad", records))
+
+local model = {fatInstances={{modelId=7, transf={[13]=3,[14]=4,[15]=5}}}}
+local lineComponent
+api = {
+    type = {ComponentType={LINE=1,MODEL_INSTANCE_LIST=2,SIGNAL_LIST=3},
+        Line={new=function() return {stops={}} end,
+            Stop={new=function() return {stopConfig={load={},unload={},maxLoad={}},
+                waypoints={},alternativeTerminals={}} end}},
+        SignalId={new=function() return {} end}},
+    engine = {entityExists=function() return true end,
+        getComponent=function(id, ty)
+            if ty == 1 then return lineComponent end
+            if ty == 2 then return model end
+            if ty == 3 then return {signals={{},{},{}}} end
+        end},
+    res={modelRep={getName=function() return "waypoint.mdl" end}}
+}
+game = {interface={getEntities=function() return {98} end, getName=function() return "Cargo" end}}
+cargoCM.stationGroupPos=function() return 1,2 end
+cargoCM.stationPosInGroup=function() return nil end
+cargoCM.findStopNear=function() return 123 end
+cargoCM.escName=function(s) return s end
+cargoCM.unescName=function(s) return s end
+cargoCM.peerSeen=true
+cargoCM.lineHasVehicles=function() return true end
+cargoCM.lineRekey(42,"s:42")
+local wp = "~3.000:4.000:5.000:waypoint.mdl:2"
+local build = up(cargoCM.lineApplyNow, "buildLineObject")
+local cargoEncode = up(cargoCM.scheduleLocal, "encodeCmd")
+local cargoDecode = up(up(cargoCM.pollEvents, "onLine"), "decodeCmd")
+for _,op in ipairs({"LCREATE","LUPDATE"}) do
+    local record = op == "LCREATE" and "LCREATEX 1 0 0 180" or "LUPDATE 42 180"
+    record = record .. " 1 98 0 0 0 0 180 0 wp=1:123:2 cfg=1:1_4|2|0.25_1"
+    if op == "LCREATE" then record = record .. " name=Cargo" end
+    local result
+    cargoCM.readFrom=function() return "ARMED 1\n" .. record .. "\n", 1 end
+    cargoCM.scheduleLocal=function(got,args) assert(got == op); result=args end
+    cargoCM.pollInject()
+    assert(result and result.stops == base .. suffix .. wp)
+    result.op=op; result.at=1; result.origin="A"; result.seq=10
+    local wire=assert(cargoDecode(cargoEncode(result)))
+    assert(wire.stops == result.stops)
+    local obj,n=build(wire)
+    assert(n == 1 and obj.stops[1].stationGroup == 98)
+    assert(cargoCM.lineCargoSuffix(obj.stops[1].stopConfig) == suffix)
+    assert(obj.stops[1].waypoints[1].entity == 123)
+    assert(obj.stops[1].waypoints[1].index == 2)
+    lineComponent=obj
+    local snapshot=assert(cargoCM.lineSnapshot(42))
+    assert(snapshot.stops == base .. suffix .. wp)
+    lineComponent=nil
+end
+local legacy=build{stops=base,wait=180}
+assert(cargoCM.lineCargoSuffix(legacy.stops[1].stopConfig) == "")
+print("slice line cargo: create/update capture, codec, replay, snapshot, equality and legacy records passed (mock API)")
+-- Retain the Linux-only origin replay exception across the inject.lua merge.
+cm.scheduleLocal=function(op,args) assert(op=="VNAME" or op=="VCOLOR"); captured=args end
+for _,record in ipairs({"VNAME 12 Name replayOrigin=1", "VCOLOR 12 0.25 0.5 0.75 replayOrigin=1"}) do
+    captured=nil
+    cm.readFrom=function() return "ARMED 1\n" .. record .. "\n",5 end
+    cm.pollInject()
+    assert(captured and captured.skipOrigin==0)
+end
+print("slice line wire: native rename/color origin replay preserved")

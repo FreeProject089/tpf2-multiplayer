@@ -205,9 +205,51 @@ function CM.stationPosInGroup(sg, idx)
 	return x, y
 end
 
+-- CARGO FILTERS (2026-09-26: "cargo filters are not working"). A stop's
+-- stopConfig -- load and unload (cargo type indices) and maxLoad (amounts) --
+-- rides in its wire record as "^<load>|<unload>|<maxLoad>", each list "_"-joined,
+-- after the stop's fields and before its waypoints ("~..."). A stop with no
+-- filter has no suffix, so older records read the same. The replayed update used
+-- to rebuild every stop without it: the filter was gone on every instance.
+function CM.lineCargoSuffix(sc)
+	if not sc then return "" end
+	local function list(v, fmt)
+		local t = {}
+		for i = 1, #v do t[#t + 1] = string.format(fmt, v[i]) end
+		return table.concat(t, "_")
+	end
+	local okL, l = pcall(list, sc.load, "%d")
+	local okU, u = pcall(list, sc.unload, "%d")
+	local okM, m = pcall(list, sc.maxLoad, "%.9g")
+	if not (okL and okU and okM) or (l == "" and u == "" and m == "") then return "" end
+	return "^" .. l .. "|" .. u .. "|" .. m
+end
+-- the decoded command's filters (" cfg=<stop>:<l>|<u>|<m>,...") onto its stop records
+function CM.lineCaptureCargo(line, stops)
+	local tail = line:match(" cfg=([^%s]+)")
+	if not tail then return end
+	for row in tail:gmatch("[^,]+") do
+		local s, cfg = row:match("^(%d+):(.*)$")
+		s = tonumber(s)
+		if not s or not stops[s] or not cfg:match("^[^|]*|[^|]*|[^|]*$") then error("Invalid captured cargo filter " .. row) end
+		stops[s] = stops[s] .. "^" .. cfg
+	end
+end
+-- a record's filter into a Line.Stop being built
+function CM.lineApplyCargo(s, cfg)
+	local l, u, m = cfg:match("^([^|]*)|([^|]*)|([^|]*)$")
+	if not l then error("bad cargo filter " .. cfg) end
+	local sc = s.stopConfig
+	for v in l:gmatch("[^_]+") do sc.load[#sc.load + 1] = math.floor(tonumber(v)) end
+	for v in u:gmatch("[^_]+") do sc.unload[#sc.unload + 1] = math.floor(tonumber(v)) end
+	for v in m:gmatch("[^_]+") do sc.maxLoad[#sc.maxLoad + 1] = tonumber(v) end
+	s.stopConfig = sc
+end
+
 -- Two stop signatures name the same stops when every group (and station, when
 -- shipped) is within 2 m and the other fields match. A string compare is too
--- strict: positions come from each instance's own geometry.
+-- strict: positions come from each instance's own geometry. The cargo filters
+-- ("^...") must match exactly.
 function CM.stopsSigEqual(a, b)
 	if a == b then return true end
 	local ok, same = pcall(function()
@@ -215,7 +257,8 @@ function CM.stopsSigEqual(a, b)
 			local recs = {}
 			for rec in tostring(s or ""):gmatch("[^;]+") do
 				local f = {}
-				for v in rec:gmatch("[^,]+") do f[#f + 1] = tonumber(v) end
+				for v in rec:gsub("%^[^~]*", ""):gmatch("[^,]+") do f[#f + 1] = tonumber(v) end
+				f.cargo = rec:match("%^([^~]*)") or ""
 				recs[#recs + 1] = f
 			end
 			return recs
@@ -224,6 +267,7 @@ function CM.stopsSigEqual(a, b)
 		if #ra ~= #rb then return false end
 		for i = 1, #ra do
 			local p, q = ra[i], rb[i]
+			if p.cargo ~= q.cargo then return false end
 			if (p[1] - q[1]) ^ 2 + (p[2] - q[2]) ^ 2 > 4 then return false end
 			for k = 4, 7 do if p[k] ~= q[k] then return false end end
 			if p[8] and q[8] then
@@ -256,6 +300,7 @@ function CM.lineSnapshot(lid)
 				tonumber(s.station) or 0, tonumber(s.terminal) or 0, tonumber(s.loadMode) or 0,
 				tonumber(s.minWaitingTime) or 0, tonumber(s.maxWaitingTime) or 180)
 				.. (sx and string.format(",%.1f,%.1f", sx, sy) or "")
+				.. CM.lineCargoSuffix(s.stopConfig)
 			-- alternative platforms (the line editor's multi-terminal choice)
 			local al = {}
 			pcall(function()
@@ -730,7 +775,7 @@ local function buildLineObject(c)
 	end
 	for rec in tostring(c.stops or ""):gmatch("[^;]+") do
 		local f = {}
-		for v in (rec:match("^[^~]+") or rec):gmatch("[^,]+") do f[#f + 1] = CM.waitNum(v) end
+		for v in (rec:match("^[^~%^]+") or rec):gmatch("[^,]+") do f[#f + 1] = CM.waitNum(v) end
 		if #f < 7 then error("bad stop record " .. rec) end
 		local sg = findStationGroupNear(f[1], f[2])
 		if not sg then error(string.format("no station group within 20 m of %.1f,%.1f", f[1], f[2])) end
@@ -761,6 +806,11 @@ local function buildLineObject(c)
 		s.loadMode = f[5]
 		s.minWaitingTime = f[6]
 		s.maxWaitingTime = f[7]
+		local cargo = rec:match("%^([^~]*)")
+		if cargo then
+			local okC, errC = pcall(CM.lineApplyCargo, s, cargo)
+			if not okC then log(string.format("line: stop %d cargo filter not applied: %s", n + 1, tostring(errC))) end
+		end
 		local wp = CM.lineReadWaypoints(rec)
 		if #wp > 0 then
 			local target = s.waypoints

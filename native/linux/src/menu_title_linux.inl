@@ -156,10 +156,21 @@ static void RenderTitleLocked(int w,int h) {
         TitleText(pad,footer-S(26),rw-S(120),S(22),std::to_string(v.players.size())+" players",12,MW_DIM);
         TitleAction(pad+rw-S(110),footer-S(35),S(50),"<",114,g_playerPage>0);
         TitleAction(pad+rw-S(55),footer-S(35),S(50),">",115,(g_playerPage+1)*per<count);
-        const int chatTop=world && !recovery?S(133):S(245),logH=footer-chatTop-S(45),lh=S(22),lines=std::max(0,(logH-S(16))/lh);
+        const int chatTop=world && !recovery?S(133):S(245),logH=footer-chatTop-S(45),gap=S(4),room=logH-S(16),textW=cw-S(20);
         layer::Rect(cx,chatTop,cw,logH,rgb(0,0,0),50);
-        for(int i=std::max(0,int(v.chat.size())-lines),y=chatTop+S(8);i<int(v.chat.size());++i,y+=lh)
-            TitleText(cx+S(10),y,cw-S(20),lh,v.chat[i],13);
+        // Keep the newest complete messages, allowing the newest alone to clip.
+        std::vector<int> heights(v.chat.size());
+        int first=int(v.chat.size()),used=0;
+        for(int i=int(v.chat.size())-1;i>=0;--i) {
+            const int hgt=std::max(S(22),layer::WrappedTextHeight(v.chat[i].c_str(),textW,S(13))+S(3));
+            if(first<int(v.chat.size()) && used+hgt>room)break;
+            heights[i]=hgt;used+=hgt+gap;first=i;
+        }
+        for(int i=first,y=chatTop+S(8);i<int(v.chat.size());++i) {
+            const int hgt=std::min(heights[i],chatTop+logH-S(8)-y);
+            if(hgt>0)layer::Text(cx+S(10),y,textW,hgt,v.chat[i].c_str(),S(13),MW_TEXT,layer::kWordBreak);
+            y+=heights[i]+gap;
+        }
         MwField(cx,footer-S(37),cw,S(30),P().chatInput,v.active,"Message (Enter to send)",9);
         if(!recovery) {
         if(v.isHost) {

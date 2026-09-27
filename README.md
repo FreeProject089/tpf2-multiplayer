@@ -312,3 +312,8 @@ The [dev `8e0a0c00` integration](docs/linux/UPSTREAM_dev_8e0a0c00.md) supersedes
 those earlier release layouts: launchers now stay on `v<version>` (Latest),
 with update files on `<version>` and the packages repository's `v<version>`.
 Launcher-only releases no longer recreate a mod release. Version remains 0.7.0.5.
+
+The [dev `ceee11b1` integration](docs/linux/UPSTREAM_dev_ceee11b1.md) wraps
+native lobby chat to its measured width and retains the newest messages that
+fit. Shared in-game chat now wraps at 52 bytes. Offline rendering tests pass;
+the lab launch was blocked before game startup.

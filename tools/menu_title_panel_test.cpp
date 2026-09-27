@@ -108,6 +108,18 @@ int wmain(int argc,wchar_t** argv)
         g_chatCount=2;g_chatHead=0;
         strcpy_s(g_chatLog[0],"Alex: Ready to build the mountain railway?");strcpy_s(g_chatLog[1],"Player 1: Ready!");
         g_titlePlayerPage=0;
+        // a long message wraps instead of ending in "..." (and a word longer than the log breaks)
+        g_chatCount=4;
+        strcpy_s(g_chatLog[2],"Player 2: I will take the northern valley line and the freight yard near the quarry, you do the passenger stations along the lake");
+        strcpy_s(g_chatLog[3],"Player 3: https://example.invalid/a/very/long/link/without/any/spaces/to/break/at/all/in/the/chat/log");
+        RenderPanelLayer(w,h); check(w,h);
+        if(scale==1) snapshot(folder/L"lobby-chat-wrap.bmp",w,h);
+        // more than the log holds: the newest ones stay
+        g_chatCount=14;
+        for(int i=4;i<14;++i) sprintf_s(g_chatLog[i],"Player %d: message %d, a longer line so that several of them need two lines in the log",i,i);
+        RenderPanelLayer(w,h); check(w,h);
+        if(scale==1) snapshot(folder/L"lobby-chat-full.bmp",w,h);
+        g_chatCount=2;
         RenderPanelLayer(w,h); check(w,h); assert(hit(6) && hit(90) && hit(115));
         if(scale==1) snapshot(folder/L"lobby.bmp",w,h);
         SetTransferDetail("To Player 1 | Steam (TCP failed) | 94.9 / 113.0 MB | 0.48 MB/s");

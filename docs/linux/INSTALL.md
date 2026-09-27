@@ -465,3 +465,8 @@ Copies remain subject to the archive budget. Version remains 0.7.0.5.
 The [dev `363c38cc` integration](UPSTREAM_dev_363c38cc.md) retains the Windows
 terrain-sidecar concurrent-release fix. Native sidecar capture/serving remains
 unported; native pager and alignment batching behavior is unchanged.
+
+The [dev `ceee11b1` integration](UPSTREAM_dev_ceee11b1.md) wraps native lobby
+chat to its measured width, including long links, and retains the newest
+messages that fit. In-game Lua chat uses a 52-byte default wrap width.
+Version remains 0.7.0.5; live rendering validation remains outstanding.

@@ -374,6 +374,10 @@ if(BUILD_TESTING)
   target_link_options(test_panel_title PRIVATE -Wl,--gc-sections)
   target_link_libraries(test_panel_title PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
   add_test(NAME panel_title COMMAND test_panel_title)
+  find_file(TPF2MP_TEST_FONT DejaVuSans.ttf PATHS /usr/share/fonts/truetype/dejavu)
+  if(TPF2MP_TEST_FONT)
+    add_test(NAME panel_chat_wrap COMMAND test_panel_title "${TPF2MP_TEST_FONT}")
+  endif()
   add_executable(test_panel_names tests/panel_names_test.cpp)
   target_include_directories(test_panel_names PRIVATE ../src src)
   target_compile_options(test_panel_names PRIVATE -UNDEBUG -ffunction-sections -fdata-sections)
@@ -433,6 +437,9 @@ if(BUILD_TESTING)
   add_test(NAME train_order_linux COMMAND test_train_order_linux)
   find_program(TPF2MP_LUA NAMES lua5.2 lua lua5.4 lua5.3)
   if(TPF2MP_LUA)
+    add_test(NAME chat_wrap_lua COMMAND "${TPF2MP_LUA}"
+             "${CMAKE_CURRENT_SOURCE_DIR}/../../tools/linux/test_chat_wrap.lua"
+             "${CMAKE_CURRENT_SOURCE_DIR}/../../mod/mp_lockstep_1/res/config/game_script/lockstep.lua")
     add_test(NAME slice_line_wire COMMAND "${TPF2MP_LUA}"
              "${CMAKE_CURRENT_SOURCE_DIR}/../../tools/linux/test_slice_line_wire.lua"
              "${CMAKE_CURRENT_SOURCE_DIR}/../..")

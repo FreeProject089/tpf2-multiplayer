@@ -51,7 +51,7 @@ int main(int argc,char** argv) {
     using namespace panel;
     g_initDone=g_fontsOk=true;g_uiState=1;g_lastFrameMs=NowMs();
     P().username="Player";P().gameDir="/nonexistent/";
-    if(argc>1)layer::AddFont(argv[1]);
+    if(argc>1)assert(layer::AddFont(argv[1]));
     if(argc>2) {
         P().gameDir=argv[2];g_s=1;g_titleTab=0;RenderLocked(780,540);
         if(argc>3) {
@@ -61,6 +61,54 @@ int main(int argc,char** argv) {
             for(int i=0;i<1280*720;++i) { unsigned char rgb[]={pixels[i*4+2],pixels[i*4+1],pixels[i*4]};fwrite(rgb,1,3,f); }
             fclose(f);
         }
+    }
+    if(layer::HaveFont()) {
+        const auto pixels=[]() {
+            return std::vector<uint8_t>(layer::Pixels(),layer::Pixels()+layer::Width()*layer::Height()*4);
+        };
+        for(int px:{8,13,18}) {
+            const int one=layer::WrappedTextHeight("WWWW",1000,px);
+            assert(one>0);
+            for(const char* text:{"WWWW WWWW WWWW WWWW", "https://example.invalid/averylonglinkwithoutspaces", u8"éééééééééééééééééééééé"}) {
+                const int height=layer::WrappedTextHeight(text,40,px);
+                assert(height>one);
+                layer::Begin(100,400);
+                layer::Text(10,10,40,height,text,px,MW_TEXT,layer::kWordBreak);
+                const auto measured=pixels();
+                layer::Begin(100,400);
+                layer::Text(10,10,40,390,text,px,MW_TEXT,layer::kWordBreak);
+                assert(measured==pixels()); // measured height loses no glyphs
+                bool secondLine=false;
+                for(int y=0;y<400;++y)for(int x=0;x<100;++x) {
+                    if(measured[(y*100+x)*4+3]) {
+                        assert(x>=10 && x<50 && y>=10 && y<10+height);
+                        if(y>=10+one)secondLine=true;
+                    }
+                }
+                assert(secondLine);
+                layer::Begin(100,400);
+                layer::Text(10,10,40,one,text,px,MW_TEXT,layer::kWordBreak);
+                for(int y=10+one;y<400;++y)for(int x=0;x<100;++x)
+                    assert(layer::Pixels()[(y*100+x)*4+3]==0);
+            }
+            assert(layer::WrappedTextHeight("",40,px)==0);
+            assert(layer::WrappedTextHeight("a\nb",1000,px)>one);
+        }
+        for(float scale:{0.65f,1.f,1.4f})for(bool world:{false,true}) {
+            g_s=scale;g_uiState=2;P().view.inGame=world;
+            const int ww=S(780),hh=S(540);
+            const std::string newest(1200,'W');
+            P().view.chat={newest};RenderLocked(ww,hh);const auto alone=pixels();
+            P().view.chat.assign(13,"Older message that should be dropped");
+            P().view.chat.push_back(newest);RenderLocked(ww,hh);
+            assert(alone==pixels()); // newest oversized message survives a full log
+            P().view.chat={"short newest"};RenderLocked(ww,hh);const auto shortOnly=pixels();
+            P().view.chat={newest,"short newest"};RenderLocked(ww,hh);
+            assert(shortOnly==pixels()); // oversized older message cannot displace newest
+            P().view.chat={"old","short newest"};RenderLocked(ww,hh);
+            assert(shortOnly!=pixels()); // older messages remain when both fit
+        }
+        P().view={};g_s=1;g_uiState=1;
     }
     bridgeLoaded=false;P().joinCode="ABCDEFGH";
     for(bool world:{false,true})for(int tab:{0,1}) {

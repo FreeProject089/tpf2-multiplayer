@@ -26,6 +26,8 @@ class LiveJoinTest(unittest.TestCase):
             runtimes = {n: WaitingEngine(root / n, root / n, 123, n) for n in ios}
             if enabled:
                 (root / 'host' / 'tpf2mp_live_join.txt').write_text('1\n')
+            else:
+                (root / 'host' / 'tpf2mp_live_join.txt').write_text('0\n')
             def world():
                 runtimes['host']._write('tpf2_native_status.txt', {'has_world': 1})
             if world_before_join:

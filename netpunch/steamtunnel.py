@@ -26,9 +26,9 @@ import threading
 import time
 
 TUNNEL_IP = "127.0.0.1"
-TUNNEL_PORTS = range(62100, 62200)   # endpoints live on 127.0.0.1 in this range: the lobby tells them from
-                                     # real peers by the port. (A loopback alias, 127.0.0.77, was the first
-                                     # design: Windows binds it and then drops everything it sends.)
+# endpoints live on 127.0.0.1: 42100-42199 is safe from Windows Hyper-V/WSL2 dynamic port exclusions (<49152).
+# Legacy 62100-62199 is preserved for backwards compatibility with older bridge builds.
+TUNNEL_PORTS = list(range(42100, 42200)) + list(range(62100, 62200))
 IDENTITY_FILE = "tpf2_steam.txt"
 OFF_FILE = "tpf2mp_steam_off.txt"
 

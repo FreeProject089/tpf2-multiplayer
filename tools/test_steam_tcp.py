@@ -105,9 +105,23 @@ def run(label, addrs, host_listener=True):
         stop.set()
         time.sleep(0.6)
         A.close(); B.close(); ca.close(); cb.close()
+        if lobby.BULK[0] is not None and hasattr(lobby.BULK[0], "close"):
+            try:
+                lobby.BULK[0].close()
+            except Exception:
+                pass
+        lobby.BULK[0] = None
         if lobby.JOINER_BULK[0] is not None and hasattr(lobby.JOINER_BULK[0], "close"):
-            lobby.JOINER_BULK[0].close()
+            try:
+                lobby.JOINER_BULK[0].close()
+            except Exception:
+                pass
         lobby.JOINER_BULK[0] = None
+        try:
+            hsock.close()
+            jsock.close()
+        except Exception:
+            pass
         return same, via_tcp, steam_dgrams, dt
 
 

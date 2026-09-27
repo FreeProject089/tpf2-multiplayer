@@ -132,7 +132,10 @@ const int CH_DATA = 0, CH_CTL = 1;
 // ALIAS (127.0.0.77) was the first design: Windows lets a socket bind to it and
 // then silently drops every datagram it sends (measured 2026-09-21).
 const char* TUNNEL_IP = "127.0.0.1";
-const uint16_t TUNNEL_PORT_LO = 62100, TUNNEL_PORT_HI = 62199;
+// 42100-42199 is safe from Windows Hyper-V/WSL2 dynamic port reservations (<49152).
+// Legacy 62100-62199 is kept as secondary fallback.
+const uint16_t TUNNEL_PORT_LO = 42100, TUNNEL_PORT_HI = 42199;
+const uint16_t LEGACY_TUNNEL_PORT_LO = 62100, LEGACY_TUNNEL_PORT_HI = 62199;
 const DWORD EP_IDLE_MS = 180000;       // an endpoint nobody has used for 3 min closes its session
 
 // CCallbackBase's layout: a vtable of Run(void*), Run(void*, bool, uint64),
@@ -448,7 +451,11 @@ unsigned TunnelThread(void*)
         Endpoint e;
         for (uint16_t p = TUNNEL_PORT_LO; p <= TUNNEL_PORT_HI && e.sock == INVALID_SOCKET; p++)
             e.sock = BindLoopback(TUNNEL_IP, p, &e.port);   // the first free port of the range
-        if (e.sock == INVALID_SOCKET) { g_log("[steam] no free endpoint port in %u-%u\n", (unsigned)TUNNEL_PORT_LO, (unsigned)TUNNEL_PORT_HI); return nullptr; }
+        if (e.sock == INVALID_SOCKET) {
+            for (uint16_t p = LEGACY_TUNNEL_PORT_LO; p <= LEGACY_TUNNEL_PORT_HI && e.sock == INVALID_SOCKET; p++)
+                e.sock = BindLoopback(TUNNEL_IP, p, &e.port);
+        }
+        if (e.sock == INVALID_SOCKET) { g_log("[steam] no free endpoint port in %u-%u or %u-%u\n", (unsigned)TUNNEL_PORT_LO, (unsigned)TUNNEL_PORT_HI, (unsigned)LEGACY_TUNNEL_PORT_LO, (unsigned)LEGACY_TUNNEL_PORT_HI); return nullptr; }
         e.lastSeen = GetTickCount();
         auto r = eps.emplace(id, e);
         g_log("[steam] endpoint %s:%u <-> %llu\n", TUNNEL_IP, (unsigned)e.port, (unsigned long long)id);

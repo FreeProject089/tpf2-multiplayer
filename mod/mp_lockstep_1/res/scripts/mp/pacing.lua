@@ -720,8 +720,8 @@ function CM.hostCapacityCap(eff, applied, s, now)
 end
 
 function CM.governSpeed(now, eff)
-	if not eff or eff <= 0 then CM.govPrevNow, CM.govPrevTick = nil, nil; return eff end
-	if CM.governorOff() then CM.govFactor, CM.govWorst, CM.govWho = 1, 0, nil; return eff end
+	if not eff or eff <= 0 then CM.govPrevNow, CM.govPrevTick = nil, nil; CM.govEmaLag, CM.govPrevSmoothed = nil, nil; return eff end
+	if CM.governorOff() then CM.govFactor, CM.govWorst, CM.govWho = 1, 0, nil; CM.govEmaLag, CM.govPrevSmoothed = nil, nil; return eff end
 	-- our own clock rate, to project a heartbeat forward by its age
 	if CM.govPrevTick and CM.ticks > CM.govPrevTick then
 		local r = (now - CM.govPrevNow) / (CM.ticks - CM.govPrevTick)
@@ -746,14 +746,21 @@ function CM.governSpeed(now, eff)
 			if lag > worst then worst, who = lag, letter end
 		end
 	end
-	local prev = CM.govPrevWorst
+	-- Task 3.3 (PAC-02): EMA-smoothed lag to prevent saw-tooth governor oscillation.
+	-- Raw `worst` is noisy (autosaves, hash stamps, transient GC pauses). An EMA
+	-- with alpha=0.2 dampens spikes so the governor settles at a stable fractional
+	-- speed the slowest machine sustains, instead of cycling up and down.
+	CM.govEmaLag = (CM.govEmaLag or worst) * 0.8 + worst * 0.2
+	local lag = CM.govEmaLag
+	local prev = CM.govPrevSmoothed
+	CM.govPrevSmoothed = lag
 	CM.govPrevWorst = worst
-	local growing = prev ~= nil and worst > prev + 0.2
+	local growing = prev ~= nil and lag > prev + 0.2
 	local was = f
-	if worst >= K.GOV_LAG_HARD or (worst >= K.GOV_LAG_START and growing) then
+	if lag >= K.GOV_LAG_HARD or (lag >= K.GOV_LAG_START and growing) then
 		f = math.max(K.GOV_MIN, f * K.GOV_DOWN)
 		CM.govOkRuns = 0
-	elseif worst <= K.GOV_LAG_OK then
+	elseif lag <= K.GOV_LAG_OK then
 		CM.govOkRuns = (CM.govOkRuns or 0) + 1
 		if f < 1 and CM.govOkRuns >= K.GOV_UP_HOLD then f = math.min(1, f * K.GOV_UP) end
 	else
@@ -761,8 +768,8 @@ function CM.governSpeed(now, eff)
 	end
 	CM.govFactor, CM.govWorst, CM.govWho = f, worst, who
 	if math.abs(f - was) > 1e-9 then
-		log(string.format("GOV: %s is %.1f behind%s -> session x%.2f of %g = %.2f", tostring(who or "?"), worst,
-			growing and " and falling further" or (worst <= K.GOV_LAG_OK and ", everyone keeps up" or ""), f, eff, apply(eff)))
+		log(string.format("GOV: %s is %.1f behind (ema %.1f)%s -> session x%.2f of %g = %.2f", tostring(who or "?"), worst, lag,
+			growing and " and falling further" or (lag <= K.GOV_LAG_OK and ", everyone keeps up" or ""), f, eff, apply(eff)))
 	end
 	return apply(eff)
 end
@@ -901,6 +908,18 @@ function CM.pidPace(now, eff)
 		CM.pidHold, CM.pidEff = eff, eff          -- from the session speed: the slow multiplier held on was the overshoot
 		log(string.format("PID: %.2f ahead of the leader -- fine pacing again", e))
 	end
+	-- Task 2.4 (PAC-01): reset integral term on speed change or unpause to prevent windup
+	if CM.pidEff and eff ~= CM.pidEff then
+		CM.pidI = 0
+	end
+	if CM.pacePaused then
+		CM.pidI = 0
+		CM.pacePaused = false
+	end
+	-- Anti-windup: zero integral when error crosses zero
+	if (CM.pidLastE or 0) * e < 0 then
+		CM.pidI = 0
+	end
 	local dt = math.max(1, dtTicks) / 5.4         -- seconds between decisions
 	local eD = (math.abs(e) < dead) and 0 or e
 	CM.pidI = (CM.pidI or 0) + eD * dt
@@ -994,6 +1013,13 @@ function CM.catchUpTick(now, s)
 			if CM.ticks - (CM.histProgressAt or CM.cuSince) > K.HIST_STALL_TICKS then
 				CM.histProgressAt = CM.ticks
 				CM.cuAsks = (CM.cuAsks or 1) + 1
+				-- Task 2.5 (PAC-03): If catch-up cannot resolve history after 6 retries (~33s), trigger resync instead of infinite freeze
+				if CM.cuAsks > 6 then
+					log(string.format("CATCHUP: history stalled after %d retries (%d gaps remain) -- triggering resync failover", CM.cuAsks, gaps))
+					if CM.triggerResync then pcall(CM.triggerResync, "catch-up history stalled") end
+					CM.catchingUp2 = false; CM.cuPhase = nil
+					return nil
+				end
 				CM.broadcast(string.format("LSNEED t=%.4f o=%s", CM.cuFrom or now, K.INSTANCE))
 				log(string.format("CATCHUP: no history line for ~%d s (end=%s, gaps=%d, %d received) -- asked the host again (%d)",
 					math.floor(K.HIST_STALL_TICKS / 5.4), tostring(CM.histEndSeen), gaps, CM.histGot or 0, CM.cuAsks))

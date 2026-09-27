@@ -334,6 +334,12 @@ def _joiner_bulk_listener(port, log):
                 JOINER_BULK[0] = bulk_tcp.BulkListener.open(port, log)
             except (OSError, AttributeError):
                 JOINER_BULK[0] = None
+            if JOINER_BULK[0] is None and port != 0:
+                try:
+                    log(f"[bulk] preferred port {port} unavailable; falling back to ephemeral TCP port")
+                    JOINER_BULK[0] = bulk_tcp.BulkListener.open(0, log)
+                except (OSError, AttributeError):
+                    JOINER_BULK[0] = None
         return JOINER_BULK[0]
 
 

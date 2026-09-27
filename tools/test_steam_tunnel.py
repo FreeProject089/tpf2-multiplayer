@@ -53,8 +53,10 @@ with tempfile.TemporaryDirectory() as td:
     check("the kill switch makes the client unavailable", not t.available and t.id is None and t.dial("1") is None)
     os.remove(os.path.join(td, "tpf2mp_steam_off.txt"))
 
-check("is_tunnel_addr", is_tunnel_addr((TUNNEL_IP, 62100)) and is_tunnel_addr((TUNNEL_IP, 62199)) and not is_tunnel_addr(("127.0.0.1", 29471))
-      and not is_tunnel_addr(("10.0.0.1", 62100)) and not is_tunnel_addr(None))
+check("is_tunnel_addr", is_tunnel_addr((TUNNEL_IP, 42100)) and is_tunnel_addr((TUNNEL_IP, 42199))
+      and is_tunnel_addr((TUNNEL_IP, 62100)) and is_tunnel_addr((TUNNEL_IP, 62199))
+      and not is_tunnel_addr(("127.0.0.1", 29471))
+      and not is_tunnel_addr(("10.0.0.1", 42100)) and not is_tunnel_addr(None))
 
 # ---- two fake tunnels: control protocol and delivery
 with tempfile.TemporaryDirectory() as ta, tempfile.TemporaryDirectory() as tb:
@@ -144,8 +146,8 @@ check("the tunnel resolves the legacy P2P API from the game's own steam_api64.dl
       'GetModuleHandleW(L"steam_api64.dll")' in src and '"SteamAPI_SteamNetworking_v006"' in src and '"SteamAPI_ISteamNetworking_SendP2PPacket"' in src)
 check("relay through Valve is allowed and sessions are accepted from the callback", "g_api.allowRelay(g_api.net, true);" in src and "CB_SESSION_REQUEST = 1202" in src and "g_api.accept(g_api.net, id)" in src)
 check("packets over 1,200 bytes go reliable", "UNRELIABLE_MAX = 1200" in src and "SEND_RELIABLE : SEND_UNRELIABLE" in src)
-check("endpoints live on 127.0.0.1 ports 62100-62199 and the identity file is tpf2_steam.txt",
-      'TUNNEL_PORT_LO = 62100, TUNNEL_PORT_HI = 62199' in src and 'L"tpf2_steam.txt"' in src and list(steamtunnel.TUNNEL_PORTS) == list(range(62100, 62200)))
+check("endpoints live on 127.0.0.1 ports 42100-42199/62100-62199 and the identity file is tpf2_steam.txt",
+      'TUNNEL_PORT_LO = 42100, TUNNEL_PORT_HI = 42199' in src and 'L"tpf2_steam.txt"' in src and 42100 in steamtunnel.TUNNEL_PORTS and 62100 in steamtunnel.TUNNEL_PORTS)
 check("the kill switch", 'L"tpf2mp_steam_off.txt"' in src)
 check("Steam's send rate and buffers are raised by the right ids (SendRateMin 10, SendRateMax 11, SendBufferSize 9, RecvBufferSize 47; "
       "23/24 are IP_AllowWithoutAuth/TimeoutInitial and must not be touched)",

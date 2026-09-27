@@ -46,9 +46,10 @@ def wait(pred, t=20):
 try:
     # ---- a PLAIN host first: the roster's host must be the host, never a joiner
     # (0.4.5-0.4.9 named the oldest joiner in every lobby; nobody could connect)
-    hd = d("plainhost"); run(["host", "--name", "Hosty", "--local-port", "29572"], hd, "plainhost")
+    hd = d("plainhost"); run(["host", "--crossplay", "--name", "Hosty", "--local-port", "29572"], hd, "plainhost")
     assert wait(lambda: any(e.get("type") == "code" for e in events(hd)), 40), "plain host: no code"
-    pcode = [e for e in events(hd) if e.get("type") == "code"][0]["code"]
+    _cev = [e for e in events(hd) if e.get("type") == "code"][0]
+    pcode = _cev.get("cross_code") or _cev["code"]
     jd = d("plainjoin"); run(["join", pcode, "--name", "Joiny", "--local-port", "0", "--no-mesh"], jd, "plainjoin")
     assert wait(lambda: any(e.get("type") == "roster" and "Joiny" in e.get("players", []) for e in events(jd)), 40), "plain join: no roster"
     rj = [e for e in events(jd) if e.get("type") == "roster"][-1]

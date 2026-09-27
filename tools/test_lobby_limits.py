@@ -268,6 +268,7 @@ class ModList(unittest.TestCase):
         self.assertEqual(out[at:at + len(anchor)], anchor)
 
     def test_registry_has_no_count_cap(self):
+        modshare.set_registry_scope(None)
         with tempfile.TemporaryDirectory() as td, patch.object(modshare, "data_dir", return_value=td):
             for i in range(300):
                 d = os.path.join(td, "workshop", str(1000000 + i))

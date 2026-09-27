@@ -235,14 +235,24 @@ function CM.lineCaptureCargo(line, stops)
 		stops[s] = stops[s] .. "^" .. cfg
 	end
 end
--- a record's filter into a Line.Stop being built
+-- a record's filter into a Line.Stop being built. Every read of sc.load (like
+-- s.stopConfig itself) hands out a COPY: appending to sc.load[...] directly filled
+-- a copy that was thrown away, and the replayed stop had no filter (2026-09-26,
+-- measured: the cfg reached both instances, both stops read back empty). So each
+-- list is taken, filled and assigned back, as alternativeTerminals is below.
 function CM.lineApplyCargo(s, cfg)
 	local l, u, m = cfg:match("^([^|]*)|([^|]*)|([^|]*)$")
 	if not l then error("bad cargo filter " .. cfg) end
 	local sc = s.stopConfig
-	for v in l:gmatch("[^_]+") do sc.load[#sc.load + 1] = math.floor(tonumber(v)) end
-	for v in u:gmatch("[^_]+") do sc.unload[#sc.unload + 1] = math.floor(tonumber(v)) end
-	for v in m:gmatch("[^_]+") do sc.maxLoad[#sc.maxLoad + 1] = tonumber(v) end
+	local function fill(field, text, conv)
+		local v = sc[field]
+		local k = #v
+		for x in text:gmatch("[^_]+") do k = k + 1; v[k] = conv(x) end
+		sc[field] = v
+	end
+	fill("load", l, function(x) return math.floor(tonumber(x)) end)
+	fill("unload", u, function(x) return math.floor(tonumber(x)) end)
+	fill("maxLoad", m, tonumber)
 	s.stopConfig = sc
 end
 

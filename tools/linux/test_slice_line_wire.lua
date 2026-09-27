@@ -66,7 +66,7 @@ assert(cm.waitNum(waits.wait) == math.huge and waits.stops == captured.stops)
 print("slice line wire: fractional/negative/infinite waits passed")
 
 -- Cargo regression: production capture/codec/build/snapshot code, with a table
--- model of the game API. This does not prove the engine's userdata properties.
+-- copy-on-read model of the game API. This does not prove real userdata behavior.
 package.path = root .. "/mod/mp_lockstep_1/res/scripts/?.lua;" .. package.path
 local cargoCM, cargoK = {}, {INSTANCE="A", INJECT_FILE="test", LINE_EDIT_FREE=0}
 module("net", cargoCM, cargoK)
@@ -87,13 +87,58 @@ assert(records[1] == base and records[2] == base .. suffix)
 assert(not pcall(cargoCM.lineCaptureCargo, " cfg=3:1|2|3", records))
 assert(not pcall(cargoCM.lineCaptureCargo, " cfg=1:bad", records))
 
+-- Keep backing values outside the proxy so every read invokes __index.
+-- Both the nested lists and Stop.stopConfig require explicit write-back.
+local function copy(value)
+    if type(value) ~= "table" then return value end
+    local result = {}
+    for k, v in pairs(value) do result[k] = copy(v) end
+    return result
+end
+local function configProxy(backing)
+    return setmetatable({}, {
+        __index=function(_, field) return copy(backing[field]) end,
+        __newindex=function(_, field, value) backing[field] = copy(value) end
+    })
+end
+local function newStop()
+    local backing = {load={}, unload={}, maxLoad={}}
+    return setmetatable({waypoints={}, alternativeTerminals={}}, {
+        __index=function(_, field)
+            if field == "stopConfig" then return configProxy(copy(backing)) end
+        end,
+        __newindex=function(self, field, value)
+            if field == "stopConfig" then
+                for _, key in ipairs({"load", "unload", "maxLoad"}) do
+                    backing[key] = copy(value[key])
+                end
+            else rawset(self, field, value) end
+        end
+    })
+end
+local stop = newStop()
+stop.stopConfig.load[1] = 99
+assert(#stop.stopConfig.load == 0)
+local detached = stop.stopConfig
+detached.load = {99}
+assert(#stop.stopConfig.load == 0)
+cargoCM.lineApplyCargo(stop, "1_0|0_1|0.25_1")
+assert(cargoCM.lineCargoSuffix(stop.stopConfig) == suffix)
+cargoCM.lineApplyCargo(stop, "0|1|0.5")
+assert(cargoCM.lineCargoSuffix(stop.stopConfig) == "^1_0_0|0_1_1|0.25_1_0.5")
+cargoCM.lineApplyCargo(stop, "||")
+assert(cargoCM.lineCargoSuffix(stop.stopConfig) == "^1_0_0|0_1_1|0.25_1_0.5")
+local empty = newStop()
+cargoCM.lineApplyCargo(empty, "||")
+assert(cargoCM.lineCargoSuffix(empty.stopConfig) == "")
+assert(not pcall(cargoCM.lineApplyCargo, empty, "bad"))
+
 local model = {fatInstances={{modelId=7, transf={[13]=3,[14]=4,[15]=5}}}}
 local lineComponent
 api = {
     type = {ComponentType={LINE=1,MODEL_INSTANCE_LIST=2,SIGNAL_LIST=3},
         Line={new=function() return {stops={}} end,
-            Stop={new=function() return {stopConfig={load={},unload={},maxLoad={}},
-                waypoints={},alternativeTerminals={}} end}},
+            Stop={new=newStop}},
         SignalId={new=function() return {} end}},
     engine = {entityExists=function() return true end,
         getComponent=function(id, ty)
@@ -153,7 +198,7 @@ for _,count in ipairs({2,30,33,65,1024}) do
 end
 local legacy=build{stops=base,wait=180}
 assert(cargoCM.lineCargoSuffix(legacy.stops[1].stopConfig) == "")
-print("slice line cargo: create/update capture, codec, replay, snapshot, equality and legacy records passed (mock API)")
+print("slice line cargo: create/update capture, codec, replay, snapshot, equality and legacy records passed (copy-on-read mock API)")
 -- Retain the Linux-only origin replay exception across the inject.lua merge.
 cm.scheduleLocal=function(op,args) assert(op=="VNAME" or op=="VCOLOR"); captured=args end
 for _,record in ipairs({"VNAME 12 Name replayOrigin=1", "VCOLOR 12 0.25 0.5 0.75 replayOrigin=1"}) do

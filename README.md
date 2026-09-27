@@ -338,3 +338,9 @@ The [dev `bef70213` integration](docs/linux/UPSTREAM_dev_bef70213.md) makes nati
 include the newest startup archive’s mod `*.log` files as `previous_run_*`,
 so the crashed run’s host, terrain and bridge diagnostics accompany its dumps.
 Version remains 0.7.0.5.
+
+The [dev `4ccdde5d` integration](docs/linux/UPSTREAM_dev_4ccdde5d.md) fixes shared stop cargo-filter
+replay by assigning each filled list back through its property setter.
+Copy-on-read regression tests cover create/update and snapshot round trips.
+Native cargo capture remains an inherited gap; no live parity is claimed.
+Version remains 0.7.0.5.

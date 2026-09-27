@@ -1,39 +1,42 @@
 #!/usr/bin/env python3
-"""Complete a release: the install files to the packages repository, the two
-launchers to the mod's release, then publish it.
+"""Complete a release: the two launchers on the version's page v<version>, its
+install files to the packages repository and to the release <version>, then publish.
 
     python tools/publish_release.py v0.7.0.6 --linux-dir DIR [--publish]
     python tools/publish_release.py launcher [--publish]     a launcher update on its own
-
-LAUNCHER RELEASES (the user, 2026-09-26: "make separate releases for the launcher
-updates, tag them as something else"). A new launcher does not wait for a mod
-version: `launcher` makes a release tagged launcher-v<launcher version> (tearded's
-tag, e.g. launcher-v1.2.0) with the same two files under the same names, published
-WITHOUT the "Latest" mark, so releases/latest stays the newest mod version. The
-launchers skip launcher-* tags when they look for mod versions, and the release
-workflow builds only v* tags. Mod releases still attach the launchers of the day.
+    python tools/publish_release.py page v0.7.0.5 [--publish] a published version to this layout
 
 THE LAYOUT (2026-09-26, the user: releases should "only show 2 things to download
-the linux launcher and the windows launcher"). A release of silver2127/tpf2-multiplayer
-carries exactly two files:
+the linux launcher and the windows launcher"; "move to the two launcher model with
+another tagged release for the update files"; "two launcher on the original page",
+and, asked, launchers on top even though launchers up to 1.2.0 then cannot install):
 
-    TpF2Multiplayer-Launcher-Windows-Setup.exe   tearded/tpf-multiplayer-launcher's Setup.exe
-    TpF2Multiplayer-Launcher-Linux.AppImage      its Linux launcher
+    v0.7.0.6   the version's page, first in the list and marked Latest: exactly
+               TpF2Multiplayer-Launcher-Windows-Setup.exe   tearded's Setup.exe
+               TpF2Multiplayer-Launcher-Linux.AppImage      its Linux launcher
+               under names that do not change (.../releases/latest/download/<name>)
+    0.7.0.6    the update files, tagged without the "v", not Latest:
+               TpF2Multiplayer.msi  TpF2Multiplayer-files.zip  install_proton.py
+               install_proton.sh  SHA256SUMS.txt  tpf2mp-linux-<v>-native.run/.tar.gz/.sha256
+    silver2127/tpf2-multiplayer-packages v0.7.0.6   the same install files
 
-under names that do not change, so .../releases/latest/download/<name> always
-works. Everything the launchers and the Proton script install from goes to a
-release with the SAME TAG in silver2127/tpf2-multiplayer-packages:
+Launchers from 1.3.0 skip a tag without the "v" whose v twin is listed (and
+launcher-v* releases), and install from the packages release with the v tag; so
+do the Proton script and the Linux launcher. Launchers up to 1.2.0 look for the MSI
+on v<version> and cannot install a version published this way: their players
+update the launcher first (Settings). The releases list is ordered by GitHub in a
+way publication dates do not decide (2026-09-26: a page tagged without the "v" and
+published last still listed below v0.7.0.4), so the launchers are on the v tag.
+Only v* tags start the release workflow.
 
-    TpF2Multiplayer.msi  TpF2Multiplayer-files.zip  install_proton.py  install_proton.sh
-    SHA256SUMS.txt       tpf2mp-linux-<v>-native.run / .tar.gz / .sha256
+LAUNCHER RELEASES (the user, 2026-09-26: "make separate releases for the launcher
+updates, tag them as something else"). `launcher` makes a release tagged
+launcher-v<launcher version> with the two files under the same names, published
+WITHOUT the "Latest" mark.
 
-Releases up to 0.7.0.5 keep their files on the mod's own releases; the launchers
-and tools/proton/install*.py/.sh look in the packages repository first and fall
-back to the mod's release for those.
-
-WHAT IT DOES, in order (each step checks, nothing is published half-done):
-  1. the mod's DRAFT release for the tag (the Build MSI workflow makes it with the
-     notes; see .github/workflows/build-msi.yml);
+WHAT IT DOES for a version, in order (each step checks, nothing is published half-done):
+  1. the DRAFT release v<version> (the Build MSI workflow makes it with the notes;
+     see .github/workflows/build-msi.yml);
   2. the install files: the tag run's workflow artifact (or --payload-dir), checked
      against its SHA256SUMS.txt; the native Linux package from --linux-dir
      (tools/linux/build_release.sh on strelka), checked against its .sha256;
@@ -41,9 +44,15 @@ WHAT IT DOES, in order (each step checks, nothing is published half-done):
      release), and each file uploaded unless the same bytes are already there;
   4. the launchers: tearded's newest launcher release (or --windows-launcher /
      --linux-launcher files), checked against that release's SHA256SUMS.txt;
-  5. the mod release's assets made exactly those two (anything else is removed);
-  6. with --publish, the draft published (latest unless it is a pre-release).
+  5. v<version> with exactly the two launchers; the release <version> (a draft,
+     created if missing) with exactly the install files;
+  6. with --publish: <version> (never Latest), then v<version> (Latest unless a
+     pre-release).
 Without a Linux launcher yet, --no-linux-launcher publishes the Windows one alone.
+
+PAGE: a version published with its files on v<version> (0.7.0.5 and older) gets
+this layout: the files copied to the packages release and to <version>, checked,
+then the launchers onto v<version> and its files removed from it.
 
 The token is GH_TOKEN, else the one Git stores for github.com (git credential fill).
 """
@@ -56,6 +65,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -165,6 +175,29 @@ def draft_release(gh, tag):
             if r["tag_name"] == tag:
                 return r
     fail(f"{REPO} has no release for {tag}: push the tag and let the Build MSI workflow draft it first")
+
+
+def find_release(gh, tag):
+    """The release for a tag, drafts included (releases/tags/<tag> does not see drafts)."""
+    for page in range(1, 6):
+        batch = gh.call("GET", f"/repos/{REPO}/releases?per_page=100&page={page}")
+        for r in batch:
+            if r["tag_name"] == tag:
+                return r
+        if len(batch) < 100:
+            return None
+    return None
+
+
+def tag_commit(gh, tag):
+    ref = gh.call("GET", f"/repos/{REPO}/git/ref/tags/{tag}")["object"]
+    return gh.call("GET", f"/repos/{REPO}/git/tags/{ref['sha']}")["object"]["sha"] if ref["type"] == "tag" else ref["sha"]
+
+
+def published(gh, rel, latest):
+    change = {"draft": False, "make_latest": "true" if latest else "false"}
+    gh.write(f"publish {rel['tag_name']}{'' if latest else ' (not Latest)'}", "PATCH",
+             f"/repos/{REPO}/releases/{rel['id']}", body=change)
 
 
 def payload_from_ci(gh, tag, into):
@@ -278,8 +311,7 @@ def launcher_release(gh, args):
                 f"| **Windows** | **[{WINDOWS_NAME}]({base}/{WINDOWS_NAME})** |\n"
                 + ("" if args.no_linux_launcher else f"| **Linux / Steam Deck** | **[{LINUX_NAME}]({base}/{LINUX_NAME})** |\n")
                 + f"\nAn installed launcher also updates itself (Settings). What changed: [launcher {lver}]({source['html_url']}).\n")
-        existing = next((r for page in range(1, 6) for r in gh.call("GET", f"/repos/{REPO}/releases?per_page=100&page={page}")
-                         if r["tag_name"] == tag), None)
+        existing = find_release(gh, tag)
         if existing and not existing["draft"] and not args.dry_run:
             fail(f"{tag} is already published")
         rel = existing or gh.write(f"create {tag}", "POST", f"/repos/{REPO}/releases", body={
@@ -297,16 +329,128 @@ def launcher_release(gh, args):
         say(f"{tag}:")
         upload(gh, rel, [p for p, _ in chosen], [n for _, n in chosen])
         if args.publish:
-            gh.write(f"publish {tag} (not Latest)", "PATCH", f"/repos/{REPO}/releases/{rel['id']}",
-                     body={"draft": False, "make_latest": "false"})
+            published(gh, rel, False)
             say(f"published: https://github.com/{REPO}/releases/tag/{tag}")
         else:
             say("left as a draft (--publish publishes it)")
 
 
+def launcher_table(tag, files_url):
+    base = f"https://github.com/{REPO}/releases/download/{tag}"
+    return ("## Download\n\n| You play on | Get this one file |\n| --- | --- |\n"
+            f"| **Windows** (Steam, game build 35924) | **[{WINDOWS_NAME}]({base}/{WINDOWS_NAME})** -- install it, then **Update & play** |\n"
+            f"| **Linux / Steam Deck** (the native game or Proton) | **[{LINUX_NAME}]({base}/{LINUX_NAME})** -- make it executable, run it, then **Update & play** |\n\n"
+            f"The launcher installs this version and keeps it up to date. Manual install files (MSI, Linux package, Proton script, checksums) "
+            f"are in [the update files]({files_url}). The two *Source code* archives at the bottom are the repository, not the mod. "
+            "Everyone in a session needs the same version.\n")
+
+
+def copy_release(gh, tag, version, prerelease, commit, notes, files, dry):
+    """The release <version> (no "v") with exactly the install files, created as a draft."""
+    copy_tag = version
+    rel = find_release(gh, copy_tag)
+    v_url = f"https://github.com/{REPO}/releases/tag/{tag}"
+    pkg_url = f"https://github.com/{PACKAGES_REPO}/releases/tag/{tag}"
+    body = (f"The update files of **[TpF2 Multiplayer {version}]({v_url})**. Players: get the launcher from "
+            f"[that page]({v_url}); the launchers download these from [the packages release]({pkg_url}).\n\n" + notes)
+    if rel is None:
+        say(f"creating {copy_tag} (the update files)")
+        rel = gh.write(f"create {copy_tag}", "POST", f"/repos/{REPO}/releases", body={
+            "tag_name": copy_tag, "target_commitish": commit, "name": f"{version} (update files)", "body": body,
+            "draft": True, "prerelease": prerelease, "make_latest": "false"})
+    elif rel.get("body") != body:
+        gh.write(f"update {copy_tag}'s notes", "PATCH", f"/repos/{REPO}/releases/{rel['id']}", body={"body": body})
+    if rel is None:
+        return None
+    rel["_repo"] = REPO
+    upload(gh, rel, files)
+    return rel
+
+
+def packages_release(gh, tag, version, prerelease, files):
+    pkg = gh.get(f"/repos/{PACKAGES_REPO}/releases/tags/{tag}")
+    if pkg is None:
+        say(f"creating {PACKAGES_REPO} {tag}")
+        pkg = gh.write("create the packages release", "POST", f"/repos/{PACKAGES_REPO}/releases", body={
+            "tag_name": tag, "target_commitish": "main", "name": f"TpF2 Multiplayer {version} (install files)",
+            "prerelease": prerelease, "make_latest": "false" if prerelease else "true",
+            "body": f"Install files of [TpF2 Multiplayer {version}](https://github.com/{REPO}/releases/tag/{tag}), "
+                    "downloaded by its launchers and by install_proton.sh. Players: get the launcher from that release."})
+    if pkg is not None:
+        pkg["_repo"] = PACKAGES_REPO
+        say(f"packages release: {pkg['html_url']}")
+        upload(gh, pkg, files)
+
+
+def only(gh, rel, names, what):
+    """Remove every asset of `rel` not named in `names` (after the new ones are up)."""
+    for a in rel.get("assets", []):
+        if a["name"] not in names:
+            gh.write(f"remove {a['name']} from {what}", "DELETE", f"/repos/{REPO}/releases/assets/{a['id']}")
+    rel["assets"] = [a for a in rel.get("assets", []) if a["name"] in names]
+
+
+def notes_of(body):
+    """A version's notes without the download table and without a note an earlier run put first."""
+    for lead in ("The install files of ", "The update files of "):
+        if body.startswith(lead) and "\n\n" in body:
+            body = body.split("\n\n", 1)[1]
+    if body.startswith("## Download") and "\n## " in body:
+        body = "## " + body.split("\n## ", 1)[1]
+    return body
+
+
+def page_release(gh, args):
+    """A version published with its files on v<version>: the files copied (packages
+    release, <version>), then the launchers onto v<version> and its files removed."""
+    tag = args.page_tag
+    if not re.fullmatch(r"v\d+\.\d+(\.\d+){0,2}", tag or ""):
+        fail("page needs the version's tag, e.g. page v0.7.0.5")
+    version = tag[1:]
+    mod = find_release(gh, tag)
+    if mod is None or mod["draft"]:
+        fail(f"{tag} is not a published release (a new version goes through publish_release.py {tag})")
+    mod["_repo"] = REPO
+    notes = notes_of(mod.get("body") or "")
+    with tempfile.TemporaryDirectory(prefix="tpf2mp-page-") as tmp:
+        tmp = Path(tmp)
+        files = []
+        for a in mod["assets"]:
+            if a["name"] in (WINDOWS_NAME, LINUX_NAME):
+                continue
+            path = tmp / a["name"]
+            path.write_bytes(urllib.request.urlopen(a["browser_download_url"], timeout=600).read())
+            want = (a.get("digest") or "")[7:]
+            if want and sha256(path) != want:
+                fail(f"{a['name']} does not match its digest; nothing changed")
+            files.append(path)
+        if not any(f.name == "TpF2Multiplayer.msi" for f in files):
+            copy = find_release(gh, version)
+            if copy is None or not any(a["name"] == "TpF2Multiplayer.msi" for a in copy["assets"]):
+                fail(f"{tag} has no install files and {version} none either")
+            say(f"{tag} already has no install files; {version} holds them")
+        else:
+            say(f"{tag}: {len(files)} install file(s) downloaded and checked")
+            packages_release(gh, tag, version, mod["prerelease"], files)
+            copy = copy_release(gh, tag, version, mod["prerelease"], tag_commit(gh, tag), notes, files, args.dry_run)
+            if copy is not None and args.publish and copy["draft"]:
+                published(gh, copy, False)
+        chosen = launchers(gh, args, tmp)
+        say(f"{tag} launchers:")
+        upload(gh, mod, [p for p, _ in chosen], [n for _, n in chosen])
+        only(gh, mod, {n for _, n in chosen}, tag)
+    pkg_url = f"https://github.com/{PACKAGES_REPO}/releases/tag/{tag}"
+    gh.write(f"{tag}: the launcher table and Latest", "PATCH", f"/repos/{REPO}/releases/{mod['id']}", body={
+        "name": version, "body": launcher_table(tag, pkg_url) + "\n" + notes,
+        "make_latest": "false" if mod["prerelease"] else "true"})
+    say(("(dry run) " if args.dry_run else "") + f"done: https://github.com/{REPO}/releases/tag/{tag}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("tag", help="the release tag, e.g. v0.7.0.6, or 'launcher' for a launcher update on its own")
+    ap.add_argument("tag", help="the release tag, e.g. v0.7.0.6; 'launcher' for a launcher update on its own; "
+                                "'page' to move a published version to this layout")
+    ap.add_argument("page_tag", nargs="?", help="with page: the version's tag, e.g. v0.7.0.5")
     ap.add_argument("--linux-dir", help="folder with tpf2mp-linux-<v>-native.run/.tar.gz/.sha256 (a mod version)")
     ap.add_argument("--payload-dir", help="folder with the Windows/Proton files instead of the tag run's artifact")
     ap.add_argument("--windows-launcher", help="a launcher Setup.exe instead of tearded's newest release")
@@ -317,6 +461,8 @@ def main():
     args = ap.parse_args()
     if args.tag == "launcher":
         return launcher_release(GitHub(token(), args.dry_run), args)
+    if args.tag == "page":
+        return page_release(GitHub(token(), args.dry_run), args)
     if not re.fullmatch(r"v\d+\.\d+(\.\d+){0,2}", args.tag):
         fail("the tag looks like v0.7.0.6, or is 'launcher'")
     if not args.linux_dir:
@@ -325,61 +471,40 @@ def main():
     gh = GitHub(token(), args.dry_run)
 
     mod = draft_release(gh, args.tag)
-    say(f"mod release {args.tag}: {'draft' if mod['draft'] else 'PUBLISHED'}, {len(mod['assets'])} asset(s)")
-    # A published release is left alone: its files are where older launchers and
-    # Proton scripts download them (every release up to 0.7.0.5 keeps them there).
+    say(f"release {args.tag}: {'draft' if mod['draft'] else 'PUBLISHED'}, {len(mod['assets'])} asset(s)")
     if not mod["draft"] and not args.dry_run:
         fail(f"{args.tag} is already published; this only completes a draft (--dry-run to look anyway)")
+    mod["_repo"] = REPO
+    body = mod.get("body") or ""
+    if args.no_linux_launcher:
+        # no Linux launcher yet: its row would link a file this release does not have
+        pkg_url = f"https://github.com/{PACKAGES_REPO}/releases/download/{args.tag}"
+        body = "\n".join(l if not l.startswith("| **Linux / Steam Deck**") else
+                         f"| **Linux / Steam Deck** (the Windows game under Proton) | [install_proton.sh]({pkg_url}/install_proton.sh)"
+                         f" -- run it with sh; it fetches the rest itself (the Linux launcher is on its way) |"
+                         for l in body.split("\n"))
     with tempfile.TemporaryDirectory(prefix="tpf2mp-publish-") as tmp:
         tmp = Path(tmp)
         folder = Path(args.payload_dir) if args.payload_dir else payload_from_ci(gh, args.tag, tmp)
         files = check_payload(folder, version) + linux_files(args.linux_dir, version)
         say(f"install files: {len(files)} checked")
         chosen = launchers(gh, args, tmp)
-
-        # the packages release (same tag, same pre-release flag)
-        pkg = gh.get(f"/repos/{PACKAGES_REPO}/releases/tags/{args.tag}")
-        if pkg is None:
-            say(f"creating {PACKAGES_REPO} {args.tag}")
-            pkg = gh.write("create the packages release", "POST", f"/repos/{PACKAGES_REPO}/releases", body={
-                "tag_name": args.tag, "target_commitish": "main", "name": f"TpF2 Multiplayer {version} (install files)",
-                "prerelease": mod["prerelease"], "make_latest": "false" if mod["prerelease"] else "true",
-                "body": f"Install files of [TpF2 Multiplayer {version}](https://github.com/{REPO}/releases/tag/{args.tag}), "
-                        "downloaded by its launchers and by install_proton.sh. Players: get the launcher from that release."})
-        if pkg is not None:
-            pkg["_repo"] = PACKAGES_REPO
-            say(f"packages release: {pkg['html_url']}")
-            upload(gh, pkg, files)
-
-        # the mod release: exactly the two launchers
-        mod["_repo"] = REPO
-        keep = {name for _, name in chosen}
-        for a in mod["assets"]:
-            if a["name"] not in keep:
-                gh.write(f"remove {a['name']} from the mod release", "DELETE", f"/repos/{REPO}/releases/assets/{a['id']}")
-        mod["assets"] = [a for a in mod["assets"] if a["name"] in keep]
-        say("mod release launchers:")
+        packages_release(gh, args.tag, version, mod["prerelease"], files)
+        copy = copy_release(gh, args.tag, version, mod["prerelease"], mod.get("target_commitish") or "main",
+                            notes_of(body), files, args.dry_run)
+        say(f"{args.tag} launchers:")
         upload(gh, mod, [p for p, _ in chosen], [n for _, n in chosen])
-
-    change = {}
-    if args.no_linux_launcher:
-        # no Linux launcher yet: its row would link a file this release does not have
-        pkg_url = f"https://github.com/{PACKAGES_REPO}/releases/download/{args.tag}"
-        lines = [l if not l.startswith("| **Linux / Steam Deck**") else
-                 f"| **Linux / Steam Deck** (the Windows game under Proton) | [install_proton.sh]({pkg_url}/install_proton.sh)"
-                 f" -- run it with sh; it fetches the rest itself (the Linux launcher is on its way) |"
-                 for l in (mod.get("body") or "").split("\n")]
-        if "\n".join(lines) != mod.get("body"):
-            change["body"] = "\n".join(lines)
+        only(gh, mod, {n for _, n in chosen}, args.tag)
+    if body != mod.get("body"):
+        gh.write(f"update {args.tag}'s notes", "PATCH", f"/repos/{REPO}/releases/{mod['id']}", body={"body": body})
     if args.publish:
-        change.update({"draft": False, "make_latest": "false" if mod["prerelease"] else "true"})
-    if change:
-        gh.write(f"update {args.tag} ({', '.join(change)})", "PATCH", f"/repos/{REPO}/releases/{mod['id']}", body=change)
-    if args.publish:
-        say(("(dry run) would be " if args.dry_run else "") + f"published: https://github.com/{REPO}/releases/tag/{args.tag}")
+        if copy is not None:
+            published(gh, copy, False)
+        published(gh, mod, not mod["prerelease"])
+        say(("(dry run) would be " if args.dry_run else "") + f"published: https://github.com/{REPO}/releases/tag/{args.tag} "
+            f"(launchers), https://github.com/{REPO}/releases/tag/{version} (update files)")
     else:
-        say("left as a draft (--publish publishes it)")
-
+        say("left as drafts (--publish publishes the update files, then the page)")
 
 if __name__ == "__main__":
     main()

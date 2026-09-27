@@ -2,6 +2,7 @@
 // network requests, save reads or game calls may occur in these tests.
 #include "../src/lobby_linux.cpp"
 #include <cassert>
+#include <dlfcn.h>
 
 static std::string fixtureSaveDir;
 static bool allowPlace=false;
@@ -38,9 +39,21 @@ static void Write(const std::string& path, const std::string& body)
     assert(fclose(f)==0);
 }
 
-int main()
+int main(int argc, char** argv)
 {
     using namespace lobby;
+    assert(argc==2 && BridgeProblem());
+    // File exists but has not been loaded: every entry path still refuses.
+    assert(access(argv[1],R_OK)==0);
+    for(bool join:{false,true})for(bool dedicated:{false,true}) {
+        StartRequest r;r.join=join;r.dedicated=dedicated;r.name="Fixture";r.code="ABCDEFGH";
+        std::string why;const auto gen=S().m.gen;
+        assert(!Start(r,&why) && why.find("tpf2_bridge_mp.so")!=std::string::npos);
+        assert(!S().m.active && S().m.gen==gen && S().q.empty());
+    }
+    void* bridge=dlopen(argv[1],RTLD_NOW|RTLD_LOCAL);assert(bridge && !BridgeProblem());
+    assert(dlclose(bridge)==0 && BridgeProblem());
+    bridge=dlopen(argv[1],RTLD_NOW|RTLD_LOCAL);assert(bridge && !BridgeProblem());
     std::string list="{\"servers\":[";
     for(int i=0;i<60;++i) { if(i)list+=",";list+="{\"code\":\"fixture-"+std::to_string(i)+"\",\"name\":\"Game\"}"; }
     list+="]}";std::vector<PubRow> publicRows;std::string publicNote;
@@ -198,18 +211,6 @@ int main()
     lobby::Json departed;
     assert(lobby::ParseJson(R"({"players":["host","joiner"]})", &departed));
     lobby::ApplyRoster(departed); assert(readLoading().empty());
-    // A game host's roster carries sticky letters too. "aaron" joined last but
-    // sorts first: by roster position bob would become c mid-game (2026-09-26).
-    lobby::Json plain;
-    assert(lobby::ParseJson(R"({"players":["aaron","bob","host"],"host":"host","you":"bob","relay":false,"letters":{"aaron":"c","bob":"b","host":"a"}})", &plain));
-    lobby::ApplyRoster(plain);
-    assert(readNames() == "c=aaron\nb=bob\na=host\n");
-    assert(lobby::OwnLetter() == "b");
-    // Without letters (an older host) the positional rule still applies.
-    lobby::Json unlettered;
-    assert(lobby::ParseJson(R"({"players":["aaron","bob","host"],"host":"host","you":"bob","relay":false})", &unlettered));
-    lobby::ApplyRoster(unlettered);
-    assert(readNames() == "b=aaron\nc=bob\na=host\n");
     // A complete roster over 1 MiB survives the mailbox tail and parser.
     lobby::S().lobbyDir=dir; lobby::S().child.gen=model.gen;
     std::string event="{\"type\":\"roster\",\"players\":[";

@@ -157,12 +157,14 @@ int main()
     put(prev + L"game_stdout.txt", "THE RUN THAT DIED\n");
     put(prev + L"crash_f9f9b880.dmp", "MDMP");
     put(prev + L"crash_f9f9b880_stdout.txt", "LOG BESIDE THE DUMP\n");
+    put(prev + L"tpf2mp_host.log", "[host] terrain sidecar: loaded\n");
     Tpf2mpLogArchive c;
     assert(Tpf2mpArchiveLogsSafe(false, game.c_str(), &c) && c.folder[0]);
     const std::wstring cf = std::wstring(c.folder) + L"\\";
     assert(get(cf + L"previous_run_game_stdout.txt") == "THE RUN THAT DIED\n");
     assert(get(cf + L"previous_run_crash_f9f9b880.dmp") == "MDMP");
     assert(get(cf + L"previous_run_crash_f9f9b880_stdout.txt") == "LOG BESIDE THE DUMP\n");
+    assert(get(cf + L"previous_run_tpf2mp_host.log") == "[host] terrain sidecar: loaded\n");
 
     printf("PASS: versions, a crashed run's dumps, state files (copied, 8 MB tail), game/plugin cfg, lobby stream with codes masked, no save/terrain, keep %d\n",
            TPF2_LOG_KEEP);

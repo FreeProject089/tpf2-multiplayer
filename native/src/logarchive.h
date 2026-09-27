@@ -589,6 +589,11 @@ static inline bool Tpf2mpArchiveLogs(bool previousSession, const wchar_t* gameDi
             _snwprintf_s(dir, _TRUNCATE, L"%s%s\\", out->root, newest);
             _snwprintf_s(shownDir, _TRUNCATE, L"logs\\%s", newest);
             each(dir, L"crash_*", L"previous_run_", shownDir, false);
+            // ... and the mod's own logs of that run (plugin host and Big Maps, slice,
+            // bridge): a heap corruption report on 2026-09-26 could not say whether
+            // Big Maps' terrain sidecar was loaded in the run that died, because only
+            // the run after it was in the archive
+            each(dir, L"*.log", L"previous_run_", shownDir, false);
         }
     }
     // 5. state: what each side believed, beside what it logged. Last, so a big

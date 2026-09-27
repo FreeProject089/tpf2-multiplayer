@@ -28,6 +28,7 @@
 #      mod/mp_lockstep_1/
 #      netpunch/netpunch
 #    and packs it as <out>/tpf2mp-linux-<version>.tar.gz (default out: dist/linux).
+#    Also emits -native.run/.tar.gz/.sha256 for tools/publish_release.py.
 set -euo pipefail
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 BUILD=$REPO/native/linux/out-release
@@ -245,12 +246,31 @@ install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_0610033.md" "$STAGE/UPSTREAM_dev_
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_e43d01dd.md" "$STAGE/UPSTREAM_dev_e43d01dd.md"
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_d8a3ce57.md" "$STAGE/UPSTREAM_dev_d8a3ce57.md"
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_96795a8b.md" "$STAGE/UPSTREAM_dev_96795a8b.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_4e1e486c.md" "$STAGE/UPSTREAM_dev_4e1e486c.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_e12ed657.md" "$STAGE/UPSTREAM_dev_e12ed657.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_2f65bae3.md" "$STAGE/UPSTREAM_dev_2f65bae3.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_616191b1.md" "$STAGE/UPSTREAM_dev_616191b1.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_363c38cc.md" "$STAGE/UPSTREAM_dev_363c38cc.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_8978635d.md" "$STAGE/UPSTREAM_dev_8978635d.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_e2957841.md" "$STAGE/UPSTREAM_dev_e2957841.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_9abb2af1.md" "$STAGE/UPSTREAM_dev_9abb2af1.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_8e0a0c00.md" "$STAGE/UPSTREAM_dev_8e0a0c00.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_f9d34252.md" "$STAGE/UPSTREAM_dev_f9d34252.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_bef70213.md" "$STAGE/UPSTREAM_dev_bef70213.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_4ccdde5d.md" "$STAGE/UPSTREAM_dev_4ccdde5d.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_ad36a976.md" "$STAGE/UPSTREAM_dev_ad36a976.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_06188ea5.md" "$STAGE/UPSTREAM_dev_06188ea5.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_0047c19f.md" "$STAGE/UPSTREAM_dev_0047c19f.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_ceee11b1.md" "$STAGE/UPSTREAM_dev_ceee11b1.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_ba1fa26e.md" "$STAGE/UPSTREAM_dev_ba1fa26e.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_f67726f8.md" "$STAGE/UPSTREAM_dev_f67726f8.md"
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_f6e47ef9.md" "$STAGE/UPSTREAM_dev_f6e47ef9.md"
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_c74a7b4e.md" "$STAGE/UPSTREAM_dev_c74a7b4e.md"
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_e86d5552.md" "$STAGE/UPSTREAM_dev_e86d5552.md"
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_01044521.md" "$STAGE/UPSTREAM_dev_01044521.md"
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_45183ac6.md" "$STAGE/UPSTREAM_dev_45183ac6.md"
 install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_122a0ce9.md" "$STAGE/UPSTREAM_dev_122a0ce9.md"
+install -m 0644 "$REPO/docs/linux/UPSTREAM_dev_4e857780.md" "$STAGE/UPSTREAM_dev_4e857780.md"
 for f in LICENSE THIRD_PARTY_NOTICES.md; do [ ! -f "$REPO/$f" ] || install -m 0644 "$REPO/$f" "$STAGE/$f"; done
 printf '%s\n' "$VERSION" >"$STAGE/VERSION"
 
@@ -266,7 +286,7 @@ CXX=$(sed -n 's/^CMAKE_CXX_COMPILER:[A-Z]*=//p' "$BUILD/CMakeCache.txt" | head -
     echo "compiler: ${CXX:-?} inside soldier SDK (version below)"
   fi
   echo "game:     Transport Fever 2, Steam Linux build 35924 (build-id 3a0e156390b0e6f1e372051c24802c8493ae454a)"
-  echo "Lua: Windows 0.7.0.5 f67726f8ba7a0bfa979af7b513896ae746dd7e50 (pinned Linux origin replay)"
+  echo "Lua: Windows dev 4e857780 (4e85778017880eb29463767e884d7e5ef464314c), release 0.7.0.6 (pinned Linux origin replay)"
   echo "Bundled Big Maps native source: imported 4769cd3; see BIGMAP_PORT.md for limits"
   if [ -n "$BIGMAP_REPO" ]; then echo "Big Maps: $BIGMAP_REPO $(git -C "$BIGMAP_REPO" rev-parse HEAD) (working tree built)"; fi
   echo "libraries: ${LIBS[*]}"
@@ -291,3 +311,10 @@ cat "$REPO/tools/linux/self_extract.sh" "$OUT/$NAME.tar.gz" > "$OUT/$NAME.run"
 chmod 0755 "$OUT/$NAME.run"
 say "== done: $OUT/$NAME.tar.gz ($(du -h "$OUT/$NAME.tar.gz" | cut -f1))"
 say "== installer: $OUT/$NAME.run"
+
+# Stable native package names consumed by the shared release publisher. Keep the
+# original names and archive root for local installers and auto_install.py.
+cp "$OUT/$NAME.tar.gz" "$OUT/$NAME-native.tar.gz"
+cp "$OUT/$NAME.run" "$OUT/$NAME-native.run"
+(cd "$OUT" && sha256sum "$NAME-native.run" "$NAME-native.tar.gz") >"$OUT/$NAME-native.sha256"
+say "== packages assets: $OUT/$NAME-native.{run,tar.gz,sha256}"

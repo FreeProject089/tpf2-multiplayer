@@ -233,6 +233,38 @@ static void DrawRun(const uint32_t* cps, size_t n, float penX, int baseline, int
     }
 }
 
+// Share line boundaries between measurement and drawing, including UTF-8 words
+// wider than the box (Decode has already converted them to codepoints).
+static std::vector<std::pair<size_t, size_t>> WrappedRuns(const std::vector<uint32_t>& cps, int w, int px)
+{
+    std::vector<std::pair<size_t, size_t>> runs;
+    size_t i = 0;
+    while (i < cps.size()) {
+        while (i < cps.size() && cps[i] == ' ') ++i;
+        if (i == cps.size()) break;
+        size_t end = i, lastSpace = 0;
+        bool haveSpace = false;
+        while (end < cps.size() && cps[end] != '\n') {
+            if (RunWidth(cps.data() + i, end - i + 1, px) > float(w) && end > i) break;
+            if (cps[end] == ' ') { lastSpace = end; haveSpace = true; }
+            ++end;
+        }
+        size_t cut = end;
+        if (end < cps.size() && cps[end] != '\n' && haveSpace) cut = lastSpace;
+        runs.emplace_back(i, cut - i);
+        i = (cut < cps.size() && (cps[cut] == ' ' || cps[cut] == '\n')) ? cut + 1 : cut;
+    }
+    return runs;
+}
+
+int WrappedTextHeight(const char* utf8, int w, int px)
+{
+    if (w <= 0 || px <= 0 || g_faces.empty()) return 0;
+    float ascent, descent, gap;
+    LineMetrics(px, &ascent, &descent, &gap);
+    return int(std::ceil(WrappedRuns(Decode(utf8), w, px).size() * (ascent - descent + gap)));
+}
+
 void Text(int x, int y, int w, int h, const char* utf8, int px, Rgb c, unsigned flags, int alpha)
 {
     if (w <= 0 || h <= 0 || px <= 0 || g_faces.empty()) return;
@@ -246,25 +278,15 @@ void Text(int x, int y, int w, int h, const char* utf8, int px, Rgb c, unsigned 
         // lines from the top, as DT_WORDBREAK | DT_TOP.
         const float lineH = ascent - descent + gap;
         float lineTop = (float)y;
-        size_t i = 0;
-        while (i < cps.size() && lineTop < by1) {
-            while (i < cps.size() && cps[i] == ' ') i++;
-            size_t end = i, lastSpace = 0;
-            bool haveSpace = false;
-            while (end < cps.size() && cps[end] != '\n') {
-                if (RunWidth(cps.data() + i, end - i + 1, px) > (float)w && end > i) break;
-                if (cps[end] == ' ') { lastSpace = end; haveSpace = true; }
-                end++;
-            }
-            size_t cut = end;
-            if (end < cps.size() && cps[end] != '\n' && haveSpace) cut = lastSpace;
-            float lw = RunWidth(cps.data() + i, cut - i, px);
+        for (const auto& run : WrappedRuns(cps, w, px)) {
+            if (lineTop >= by1) break;
+            const size_t i = run.first, count = run.second;
+            float lw = RunWidth(cps.data() + i, count, px);
             float penX = (float)x;
             if (flags & kCenter) penX = x + (w - lw) / 2;
             else if (flags & kRight) penX = x + w - lw;
-            DrawRun(cps.data() + i, cut - i, penX, (int)std::lround(lineTop + ascent), px, c, alpha, x, y, bx1, by1);
+            DrawRun(cps.data() + i, count, penX, (int)std::lround(lineTop + ascent), px, c, alpha, x, y, bx1, by1);
             lineTop += lineH;
-            i = (cut < cps.size() && (cps[cut] == ' ' || cps[cut] == '\n')) ? cut + 1 : cut;
         }
         return;
     }

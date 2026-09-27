@@ -64,6 +64,8 @@ struct StartRequest {
 // Checks the request and hands the launch to the lobby thread, which stops a
 // lobby still running first. False, with the text for the status line, when
 // nothing was started.
+// nullptr only when the native bridge is loaded in this process. Never loads it.
+const char* BridgeProblem();
 bool Start(const StartRequest& req, std::string* why);
 void Leave();                                    // quit; after 1.5 s SIGTERM; after 2 s more SIGKILL
 

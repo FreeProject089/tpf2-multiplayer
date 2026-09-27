@@ -43,6 +43,9 @@ bool HaveFont();
 // Width of a single line in pixels at `px` (the em height, as CreateFontW(-px)).
 int TextWidth(const char* utf8, int px);
 
+// Height using exactly the same line breaks and metrics as kWordBreak drawing.
+int WrappedTextHeight(const char* utf8, int w, int px);
+
 // Draw into the box [x, x+w) x [y, y+h), clipped to it like DrawTextW.
 void Text(int x, int y, int w, int h, const char* utf8, int px, Rgb c, unsigned flags, int alpha = 255);
 

@@ -197,23 +197,26 @@ installing the new MSI (or running the Proton installer again): there is no in-g
 3. Tag the commit `v<version>`. Push the tag before fast-forwarding `main` to it: the workflow builds on tags and on
    `main`, and a `main` push whose commit a tag already built is skipped, so a release costs one build. Nothing
    builds on `dev`. The tag run builds the install files (below) as a workflow artifact and drafts the release
-   with a **Download** table of the two launchers, followed by `installer/RELEASE-<version>.md` when that file
+   with a **Download** table of the two launchers (linked on the `v<version>` page), followed by `installer/RELEASE-<version>.md` when that file
    exists, then GitHub's generated list of pull requests. The Proton installers are pinned to the tag by the
    workflow.
-   **Since 0.7.0.6 a release shows the two launchers only** (the user, 2026-09-26: releases should "only show 2
-   things to download the linux launcher and the windows launcher"). Complete it with
+   **Since 0.7.0.6 a version's page `v<version>` shows the two launchers only** (the user, 2026-09-26: releases
+   should "only show 2 things to download the linux launcher and the windows launcher", "two launcher on the
+   original page"): `TpF2Multiplayer-Launcher-Windows-Setup.exe` and `TpF2Multiplayer-Launcher-Linux.AppImage`
+   (tearded/tpf-multiplayer-launcher's newest release, under names that never change, so
+   `releases/latest/download/<name>` always works), marked Latest. The install files go to the release with the
+   same tag in [tpf2-multiplayer-packages](https://github.com/silver2127/tpf2-multiplayer-packages), where
+   launchers from 1.3.0, the Linux launcher and `install_proton.sh`/`.py` download them, and to a release
+   `<version>` tagged without the `v` (the update files; launchers from 1.3.0 skip it). Launchers up to 1.2.0 look
+   for the MSI on `v<version>` and cannot install such a version: their players update the launcher first.
+   Complete a version with
    `python tools/publish_release.py v<version> --linux-dir <folder with tpf2mp-linux-<version>-native.*> --publish`
-   (`--dry-run` first; `--no-linux-launcher` until tearded's launcher has a Linux build). It puts the install
-   files into a release with the same tag in
-   [tpf2-multiplayer-packages](https://github.com/silver2127/tpf2-multiplayer-packages), where the launchers and
-   `install_proton.sh`/`.py` download them (both fall back to the mod's own release for 0.7.0.5 and older, which
-   keep their files), attaches `TpF2Multiplayer-Launcher-Windows-Setup.exe` and
-   `TpF2Multiplayer-Launcher-Linux.AppImage` (tearded/tpf-multiplayer-launcher's newest release, under names
-   that never change, so `releases/latest/download/<name>` always works) and publishes. It refuses a release that
-   is already published. A launcher update between mod versions gets a release of its own:
-   `python tools/publish_release.py launcher --publish` makes `launcher-v<launcher version>` with the same two
-   files, not marked Latest (releases/latest stays the newest mod version; the launchers skip `launcher-*` tags,
-   and the workflow builds only `v*` tags). The install files: `TpF2Multiplayer.msi`,
+   (`--dry-run` first; `--no-linux-launcher` until tearded's launcher has a Linux build); it refuses a release
+   that is already published. `python tools/publish_release.py page v<version> --publish` moves a version
+   published with its files on `v<version>` to this layout (done for 0.7.0.5). A launcher update between mod
+   versions gets a release of its own: `python tools/publish_release.py launcher --publish` makes
+   `launcher-v<launcher version>` with the same two files, not marked Latest. The workflow builds only `v*` tags.
+   The install files: `TpF2Multiplayer.msi`,
    `TpF2Multiplayer-files.zip` (the MSI's files as an archive: Proton and manual installs), a
    `SHA256SUMS.txt` listing them, `tools/proton/install.py` as `install_proton.py` with its
    `DEFAULT_VERSION = None` line changed to the release version (so a copy taken from that release

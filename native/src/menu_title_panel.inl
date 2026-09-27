@@ -20,6 +20,22 @@ static void titleText(int x, int y, int w, int h, const wchar_t* text,
     layerText(x,y,w,h,text,f,color,align|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS|DT_NOPREFIX);
     DeleteObject(f);
 }
+// Word-wrapped text (a word longer than the width breaks too): the chat log.
+static const UINT TITLE_WRAP = DT_LEFT|DT_TOP|DT_WORDBREAK|DT_EDITCONTROL|DT_NOPREFIX;
+static int titleWrapH(const wchar_t* text, int w, int size)
+{
+    HFONT f = mkLato(S((float)size));
+    HDC dc = GetDC(nullptr); HGDIOBJ of = SelectObject(dc, f); RECT rc = {0,0,w,0};
+    DrawTextW(dc, text, -1, &rc, TITLE_WRAP|DT_CALCRECT);
+    SelectObject(dc, of); ReleaseDC(nullptr, dc); DeleteObject(f);
+    return rc.bottom;
+}
+static void titleWrap(int x, int y, int w, int h, const wchar_t* text, int size, COLORREF color = MW_TEXT)
+{
+    HFONT f = mkLato(S((float)size));
+    layerText(x,y,w,h,text,f,color,TITLE_WRAP);
+    DeleteObject(f);
+}
 static void titleRule(int x, int y, int w) { layerRect(x,y,w,S(1),MW_TEXT,35); }
 static void titleAction(int x,int y,int w,const wchar_t* label,int id,bool enabled=true,bool primary=false)
 {
@@ -323,10 +339,21 @@ static void titleLobby(int w,int h,bool recovery=false)
     const int footer=h-S(113);
     if(g_modelCsInit) {
         EnterCriticalSection(&g_modelCs);
-        const int chatTop=world && !recovery?S(133):S(245), logH=footer-chatTop-S(45), lh=S(22), maxLines=(std::max)(0,(logH-S(16))/lh);
+        const int chatTop=world && !recovery?S(133):S(245), logH=footer-chatTop-S(45), gap=S(4), room=logH-S(16), textW=chatW-S(20);
         layerRect(chatX,chatTop,chatW,logH,RGB(0,0,0),50);
-        for(int i=(std::max)(0,g_chatCount-maxLines),y=chatTop+S(8);i<g_chatCount;++i,y+=lh)
-            titleText(chatX+S(10),y,chatW-S(20),lh,wideOf(g_chatLog[(g_chatHead+i)%14]).c_str(),13);
+        // Each message wraps to as many lines as it needs (a long one was cut off
+        // with "..."): the newest that fit, measured from the bottom up, drawn in order.
+        int heights[14]={}, first=g_chatCount, used=0;
+        for(int i=g_chatCount-1;i>=0;--i) {
+            const int hgt=(std::max)(S(22),titleWrapH(wideOf(g_chatLog[(g_chatHead+i)%14]).c_str(),textW,13)+S(3));
+            if(first<g_chatCount && used+hgt>room) break;
+            heights[i]=hgt; used+=hgt+gap; first=i;
+        }
+        for(int i=first,y=chatTop+S(8);i<g_chatCount;++i) {
+            const int hgt=(std::min)(heights[i],chatTop+logH-S(8)-y);   // the newest alone may be taller than the log
+            if(hgt>0) titleWrap(chatX+S(10),y,textW,hgt,wideOf(g_chatLog[(g_chatHead+i)%14]).c_str(),13);
+            y+=heights[i]+gap;
+        }
         LeaveCriticalSection(&g_modelCs);
     }
     mwField(chatX,footer-S(37),chatW,S(30),g_chatInput,true,L"Message (Enter to send)",9);

@@ -339,8 +339,8 @@ include the newest startup archive’s mod `*.log` files as `previous_run_*`,
 so the crashed run’s host, terrain and bridge diagnostics accompany its dumps.
 Version remains 0.7.0.5.
 
-The [dev `4ccdde5d` integration](docs/linux/UPSTREAM_dev_4ccdde5d.md) fixes shared stop cargo-filter
-replay by assigning each filled list back through its property setter.
-Copy-on-read regression tests cover create/update and snapshot round trips.
-Native cargo capture remains an inherited gap; no live parity is claimed.
-Version remains 0.7.0.5.
+The [dev `ad36a976` integration](docs/linux/UPSTREAM_dev_ad36a976.md) replaces Lua cargo-filter
+setters with a native replay request. The Windows writer is retained; the
+Linux writer remains unported after static RE and a lab startup failure.
+Native cargo capture and replay can still lose stop filters. This supersedes
+the earlier `4ccdde5d` mock-based replay claim. Version remains 0.7.0.5.

@@ -65,8 +65,8 @@ local waits = decode(encode {op="LCREATE", at=1, origin="A", seq=4,
 assert(cm.waitNum(waits.wait) == math.huge and waits.stops == captured.stops)
 print("slice line wire: fractional/negative/infinite waits passed")
 
--- Cargo regression: production capture/codec/build/snapshot code, with a table
--- copy-on-read model of the game API. This does not prove real userdata behavior.
+-- Cargo regression: production capture/codec/build/snapshot and request files.
+-- Table fixtures do not prove real userdata behavior or native filter writes.
 package.path = root .. "/mod/mp_lockstep_1/res/scripts/?.lua;" .. package.path
 local cargoCM, cargoK = {}, {INSTANCE="A", INJECT_FILE="test", LINE_EDIT_FREE=0}
 module("net", cargoCM, cargoK)
@@ -87,51 +87,38 @@ assert(records[1] == base and records[2] == base .. suffix)
 assert(not pcall(cargoCM.lineCaptureCargo, " cfg=3:1|2|3", records))
 assert(not pcall(cargoCM.lineCaptureCargo, " cfg=1:bad", records))
 
--- Keep backing values outside the proxy so every read invokes __index.
--- Both the nested lists and Stop.stopConfig require explicit write-back.
-local function copy(value)
-    if type(value) ~= "table" then return value end
-    local result = {}
-    for k, v in pairs(value) do result[k] = copy(v) end
-    return result
-end
-local function configProxy(backing)
-    return setmetatable({}, {
-        __index=function(_, field) return copy(backing[field]) end,
-        __newindex=function(_, field, value) backing[field] = copy(value) end
-    })
-end
+-- The production builder leaves filters empty; the native slice must consume
+-- the side-channel request synchronously inside make.updateLine. Model only
+-- that Lua/file contract, not engine containers or successful native replay.
 local function newStop()
-    local backing = {load={}, unload={}, maxLoad={}}
-    return setmetatable({waypoints={}, alternativeTerminals={}}, {
-        __index=function(_, field)
-            if field == "stopConfig" then return configProxy(copy(backing)) end
-        end,
-        __newindex=function(self, field, value)
-            if field == "stopConfig" then
-                for _, key in ipairs({"load", "unload", "maxLoad"}) do
-                    backing[key] = copy(value[key])
-                end
-            else rawset(self, field, value) end
-        end
-    })
+    return {waypoints={}, alternativeTerminals={},
+        stopConfig={load={},unload={},maxLoad={}}}
 end
-local stop = newStop()
-stop.stopConfig.load[1] = 99
-assert(#stop.stopConfig.load == 0)
-local detached = stop.stopConfig
-detached.load = {99}
-assert(#stop.stopConfig.load == 0)
-cargoCM.lineApplyCargo(stop, "1_0|0_1|0.25_1")
-assert(cargoCM.lineCargoSuffix(stop.stopConfig) == suffix)
-cargoCM.lineApplyCargo(stop, "0|1|0.5")
-assert(cargoCM.lineCargoSuffix(stop.stopConfig) == "^1_0_0|0_1_1|0.25_1_0.5")
-cargoCM.lineApplyCargo(stop, "||")
-assert(cargoCM.lineCargoSuffix(stop.stopConfig) == "^1_0_0|0_1_1|0.25_1_0.5")
-local empty = newStop()
-cargoCM.lineApplyCargo(empty, "||")
-assert(cargoCM.lineCargoSuffix(empty.stopConfig) == "")
-assert(not pcall(cargoCM.lineApplyCargo, empty, "bad"))
+local realOpen = io.open
+local files, failOpen = {}, false
+cargoK.BASE = "fixture/"
+local cargoPath = "fixture/lockstep_lcargo_A.txt"
+io.open = function(path, mode)
+    assert(path == cargoPath and mode == "w")
+    if failOpen then return nil end
+    files[path] = ""
+    return {write=function(_, value) files[path] = files[path] .. value end,
+        close=function() end}
+end
+assert(not cargoCM.lineCargoRequest(42, nil))
+assert(files[cargoPath] == nil)
+cargoCM.lcargoSeq = 100
+assert(cargoCM.lineCargoRequest(42, {stops=base .. ";" .. base .. suffix .. "~waypoint"}))
+assert(files[cargoPath] == "42 101 2:1_0|0_1|0.25_1")
+cargoCM.lineCargoDone()
+assert(files[cargoPath] == "")
+assert(cargoCM.lineCargoRequest(42, {stops=base .. "^||;" .. base .. suffix}))
+assert(files[cargoPath] == "42 102 1:|| 2:1_0|0_1|0.25_1")
+cargoCM.lineCargoDone()
+failOpen = true
+assert(not cargoCM.lineCargoRequest(42, {stops=base .. suffix}))
+cargoCM.lineCargoDone() -- failed opens remain nonfatal
+failOpen = false
 
 local model = {fatInstances={{modelId=7, transf={[13]=3,[14]=4,[15]=5}}}}
 local lineComponent
@@ -187,9 +174,16 @@ for _,count in ipairs({2,30,33,65,1024}) do
         assert(wire.stops == result.stops)
         local obj,n=build(wire)
         assert(n == 1 and obj.stops[1].stationGroup == 98)
-        assert(cargoCM.lineCargoSuffix(obj.stops[1].stopConfig) == suffix)
+        assert(cargoCM.lineCargoSuffix(obj.stops[1].stopConfig) == "")
+        assert(cargoCM.lineCargoRequest(42, wire))
+        assert(files[cargoPath] == string.format("42 %d 1:%s", cargoCM.lcargoSeq, suffix:sub(2)))
+        cargoCM.lineCargoDone()
+        assert(files[cargoPath] == "")
         assert(obj.stops[1].waypoints[1].entity == 123)
         assert(obj.stops[1].waypoints[1].index == 2)
+        -- A separately supplied component tests capture; do not claim the
+        -- builder or this fixture applied the native filters.
+        obj.stops[1].stopConfig = {load=load, unload=unload, maxLoad=maximum}
         lineComponent=obj
         local snapshot=assert(cargoCM.lineSnapshot(42))
         assert(snapshot.stops == base .. suffix .. wp)
@@ -198,7 +192,28 @@ for _,count in ipairs({2,30,33,65,1024}) do
 end
 local legacy=build{stops=base,wait=180}
 assert(cargoCM.lineCargoSuffix(legacy.stops[1].stopConfig) == "")
-print("slice line cargo: create/update capture, codec, replay, snapshot, equality and legacy records passed (copy-on-read mock API)")
+-- Verify the request exists during the factory and is cleared before send.
+local factoryCalled, commandSent = false, false
+cargoCM.lineAssignRequest=function() return false end
+api.cmd = {make={updateLine=function(lid, obj)
+    assert(lid == 42 and #obj.stops == 1)
+    assert(cargoCM.lineCargoSuffix(obj.stops[1].stopConfig) == "")
+    assert(files[cargoPath] == string.format("42 %d 1:1_0|0_1|0.25_1", cargoCM.lcargoSeq))
+    factoryCalled = true
+    return obj
+end}, sendCommand=function(cmd)
+    assert(factoryCalled and files[cargoPath] == "")
+    commandSent = true
+end}
+assert(cargoCM.lineApplyNow(42, {key="s:42", wait=180, stops=base .. suffix}) == 1)
+assert(commandSent)
+factoryCalled, commandSent = false, false
+cargoCM.lineIdFor=function(key) assert(key == "s:42"); return 42 end
+cargoCM.execLine{op="LUPDATE", key="s:42", origin="B", seq=20, at=1,
+    wait=180, stops=base .. suffix}
+assert(factoryCalled and commandSent)
+io.open = realOpen
+print("slice line cargo: capture/codec/snapshot and replay request lifetime passed (no native writer simulated)")
 -- Retain the Linux-only origin replay exception across the inject.lua merge.
 cm.scheduleLocal=function(op,args) assert(op=="VNAME" or op=="VCOLOR"); captured=args end
 for _,record in ipairs({"VNAME 12 Name replayOrigin=1", "VCOLOR 12 0.25 0.5 0.75 replayOrigin=1"}) do

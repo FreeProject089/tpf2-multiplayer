@@ -25,6 +25,7 @@ int main(int argc, char** argv) {
     put(mod/"tpf2mp_install.txt", "version\t0.7.0.3\ngame\t/private/path\n");
     put(data/"tpf2_bridge.log", "bridge\n");
     put(data/"terrain_trace.log", "terrain diagnostics\n");
+    put(data/"tpf2mp_host.log", "[host] terrain sidecar: loaded\n");
     const std::string ctl="instance=b\nlobby=0123456789abcdef\n";
     put(data/"tpf2_bridge_ctl.txt", ctl);
     std::string stream(9u<<20, 'x'); stream.replace(0,5,"FIRST"); stream.replace(stream.size()-4,4,"LAST");
@@ -85,6 +86,7 @@ int main(int argc, char** argv) {
     put(previous/"crash_dead_stdout.txt", "log beside dump\n");
     put(previous/"unrelated.txt", "excluded");
     put(crashDir/"stdout.txt", "restarted game\n");
+    put(data/"tpf2mp_host.log", "[host] restarted run\n");
     fs::last_write_time(crashDir/"dead.dmp", fs::file_time_type::clock::now()-std::chrono::seconds(10));
     Tpf2mpLogArchive current;
     assert(Tpf2mpArchiveLogsSafe(false,gameDir.c_str(),&current));
@@ -93,6 +95,13 @@ int main(int argc, char** argv) {
     assert(get(now/"previous_run_game_stdout.txt")=="game stdout\n");
     assert(get(now/"previous_run_crash_dead.dmp")==dump); // No 32 MiB tail truncation.
     assert(get(now/"previous_run_crash_dead_stdout.txt")=="log beside dump\n");
+    assert(get(now/"tpf2mp_host.log")=="[host] restarted run\n");
+    assert(get(now/"previous_run_tpf2mp_host.log")=="[host] terrain sidecar: loaded\n");
+    assert(get(now/"previous_run_tpf2_bridge.log")=="bridge\n");
+    assert(get(now/"previous_run_terrain_trace.log")=="terrain diagnostics\n");
+    assert(get(now/"previous_run_netpunch_lobby_proc.log")=="lobby\n");
+    assert(get(previous/"tpf2mp_host.log")=="[host] terrain sidecar: loaded\n");
+    assert(get(now/"about.txt").find("/tpf2mp_host.log")!=std::string::npos);
     assert(!fs::exists(now/"crash_dead.dmp")); // Timestamp filter excludes the original.
     assert(!fs::exists(now/"previous_run_unrelated.txt"));
     assert(get(previous/"crash_dead.dmp")==dump); // Copy, never move.
@@ -107,8 +116,11 @@ int main(int argc, char** argv) {
     // crashed run. Startup itself must not recursively copy previous archives.
     const fs::path newer=a.folder;
     assert(!fs::exists(newer/"previous_run_crash_dead.dmp"));
+    assert(!fs::exists(newer/"previous_run_tpf2mp_host.log"));
     assert(Tpf2mpArchiveLogsSafe(false,gameDir.c_str(),&current));
     assert(get(fs::path(current.folder)/"previous_run_game_stdout.txt")=="restarted game\n");
+    assert(get(fs::path(current.folder)/"previous_run_tpf2mp_host.log")=="[host] restarted run\n");
+    assert(!fs::exists(fs::path(current.folder)/"previous_run_terrain_trace.log"));
     assert(!fs::exists(fs::path(current.folder)/"previous_run_crash_dead.dmp"));
     put(data/"tpf2mp_keep_logs.txt", "1\n");
     assert(Tpf2mpArchiveLogsSafe(true,gameDir.c_str(),&a));

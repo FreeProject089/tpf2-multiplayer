@@ -333,3 +333,8 @@ corrected packed cargo-flag reader and tests shared numeric flag transport.
 Native Linux cargo capture remains unported: static layout evidence was
 rechecked, but the lab failed before startup. Linux line edits can still
 lose stop filters. Version remains 0.7.0.5.
+
+The [dev `bef70213` integration](docs/linux/UPSTREAM_dev_bef70213.md) makes native OPEN LOGS
+include the newest startup archive’s mod `*.log` files as `previous_run_*`,
+so the crashed run’s host, terrain and bridge diagnostics accompany its dumps.
+Version remains 0.7.0.5.

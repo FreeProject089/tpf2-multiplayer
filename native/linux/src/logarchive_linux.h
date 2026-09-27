@@ -74,7 +74,7 @@
 // crash dumps written since the last archive. stdout_old.txt is left out: at
 // start it holds the run before the last one, which that run's start already
 // saved. OPEN LOGS also copies the newest previous archive's game log and
-// crash_* files as previous_run_*, keeping dumps whole within the copy budget.
+// crash_* and *.log files as previous_run_*, keeping dumps whole within the copy budget.
 // The newest TPF2_LOG_KEEP folders of each kind are kept. about.txt
 // names the files without the user's paths: these folders get sent in bug reports.
 //
@@ -789,7 +789,7 @@ static inline bool Tpf2mpArchiveLogs(bool previousSession, const char* gameDir, 
         }
     }
     // 4. OPEN LOGS after a restart: startup already counted the dead run's
-    // dumps in `since`. Recover its log and every crash_* from that archive.
+    // dumps in `since`. Recover its game log, crash_* and mod logs from that archive.
     // Keep dumps whole (no log tail cap), within the shared copy budget.
     if (!previousSession && newestPrevious[0]) {
         char src[PATH_MAX], dir[PATH_MAX], shown[PATH_MAX];
@@ -797,8 +797,11 @@ static inline bool Tpf2mpArchiveLogs(bool previousSession, const char* gameDir, 
             place(src, "previous_run_game_stdout.txt",
                   "game log of the previous run (from the newest -previous archive)", false, TPF2_LOG_TAIL_BYTES);
         if (LaFmt(dir, sizeof(dir), "%s%s/", out->root, newestPrevious) &&
-            LaFmt(shown, sizeof(shown), "logs/%s", newestPrevious))
+            LaFmt(shown, sizeof(shown), "logs/%s", newestPrevious)) {
             each(dir, "crash_*", "previous_run_", shown, false, 0);
+            // Keep the dead run's host/terrain/bridge diagnostics beside its dump.
+            each(dir, "*.log", "previous_run_", shown, false);
+        }
     }
     // State is copied after every log/dump, using the remaining copy budget.
     LaNote(about, "\nState files (the last 8 MB of each)\n");

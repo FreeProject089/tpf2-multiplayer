@@ -151,3 +151,21 @@ filesystem regression exercises a startup containing a synthetic >32 MiB
 dump, then OPEN LOGS while the original dump is excluded by timestamp. This
 is fixture evidence, not an observed game crash or UI interaction.
 See [integration and validation](../../linux/UPSTREAM_dev_616191b1.md).
+
+## dev bef70213: previous-run mod logs (2026-09-26)
+
+OPEN LOGS also copies `*.log` from the same newest startup archive, using
+`previous_run_` names. This uses the existing POSIX collector with copying
+(not moving), its regular-file checks, 32 MiB log-tail limit and shared
+200 MiB budget, before state collection. Startup already archives data logs
+and prefixed lobby logs, so no new discovery path is needed. The standalone
+collector already includes `*.log` from saved runs and needs no change.
+
+The native filesystem regression now distinguishes a dead run's host log
+from its restarted replacement, checks bridge/terrain/lobby logs, retains
+the source, and confirms newest-startup selection and no recursive startup
+collection. It fails against the preceding native implementation and passes
+with this change. These are synthetic filesystem observations, not a live
+crash. No engine address, bytes, ABI, offset or lifetime contract changes;
+no additional ELF or live reverse engineering is required.
+See [integration record](../../linux/UPSTREAM_dev_bef70213.md).

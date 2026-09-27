@@ -307,6 +307,9 @@ static void CaptureFactory(const Factory& f, uint64_t rcx, uint64_t rdx, uint64_
                 // the platform assignment the click ran, re-run here on the rebuilt list (LINE PLATFORM ASSIGNMENT AT REPLAY)
                 __try { ApplyLineAssignAtReplay(rdx, (int32_t)r8, r9); }
                 __except (EXCEPTION_EXECUTE_HANDLER) { Log("[lineassign] LUPDATE replay: fault in the assignment -- the list is applied as shipped\n"); }
+                // the stops' cargo filters, which the Lua API cannot set (CARGO FILTERS AT THE REPLAY)
+                __try { ApplyLineCargoAtReplay((int32_t)r8, r9); }
+                __except (EXCEPTION_EXECUTE_HANDLER) { Log("[lcargo] LUPDATE replay: fault writing the cargo filters -- the list is applied without them\n"); }
             }
         } else {
             // UpdateLine: decode the Line FIRST. A cancel is only honest when

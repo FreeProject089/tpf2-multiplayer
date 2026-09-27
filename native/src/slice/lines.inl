@@ -501,6 +501,113 @@ static void ApplyLineAssignAtReplay(uint64_t engine, int32_t entity, uint64_t li
         (int)lid, flag, seq, okA ? after.n : -1, summary[0] ? summary : " none");
 }
 
+// CARGO FILTERS AT THE REPLAY (2026-09-26). The Lua API reads a stop's stopConfig
+// but cannot set it: measured live on a fresh Line.Stop, `sc.load = v` with v
+// holding [1,0,1] left sc.load empty, and a replayed update always arrived without
+// its filter. So the slice writes it into the Line the Lua passes to
+// make.updateLine, as it runs the platform assignment there: the Lua writes
+// lockstep_lcargo_<x>.txt ("<line> <seq> <stop>:<load>|<unload>|<maxLoad> ...", the
+// lists "_"-joined: 0/1 per cargo type, maxLoad as numbers) right before the call.
+// Layout as DecodeStopCargo reads it: vector<bool> load at stop+0x50 (words, bit
+// count at +0x68), unload at +0x70 (+0x88), vector<float> maxLoad at +0x90. The
+// words and the floats go in through the game's own vector<uint32> copy
+// constructor (0x125480, terrain_assets.inl's RVA_VECCOPY_4), so the game's
+// allocator owns them. Only an EMPTY list is filled -- the Lua's rebuilt stops
+// always are -- so nothing is overwritten or leaked.
+static const uintptr_t RVA_VECCOPY_U32 = 0x125480;
+static long g_lcargoSeen = 0;
+using VecCopyU32Fn = uint64_t* (*)(uint64_t* dst, const uint64_t* src, uint64_t, uint64_t);
+static bool CargoVecEmpty(const uint8_t* at)
+{
+    uint64_t v[3]; memcpy(v, at, 24);
+    return v[0] == 0 && v[1] == 0 && v[2] == 0;
+}
+static void CargoVecFill(uint8_t* at, const std::vector<uint32_t>& vals)
+{
+    if (vals.empty()) return;
+    uint64_t src[3] = { (uint64_t)vals.data(), (uint64_t)(vals.data() + vals.size()), (uint64_t)(vals.data() + vals.size()) };
+    ((VecCopyU32Fn)(g_base + RVA_VECCOPY_U32))((uint64_t*)at, src, 0, 0);
+}
+static bool CargoParseList(const char* s, const char* end, bool asFloat, std::vector<uint32_t>* out)
+{
+    out->clear();
+    while (s < end) {
+        char* stop = nullptr;
+        if (asFloat) {
+            float f = strtof(s, &stop);
+            if (stop == s || !(f >= 0.f) || f > 1e30f) return false;
+            uint32_t u; memcpy(&u, &f, 4); out->push_back(u);
+        } else {
+            long v = strtol(s, &stop, 10);
+            if (stop == s || (v != 0 && v != 1)) return false;
+            out->push_back((uint32_t)v);
+        }
+        s = stop;
+        if (s < end && *s == '_') s++;
+        else if (s < end) return false;
+        if (out->size() > 1024) return false;
+    }
+    return true;
+}
+static void ApplyLineCargoAtReplay(int32_t entity, uint64_t line)
+{
+    ReadInstance();
+    if (!g_instance[0]) return;
+    char p[MAX_PATH];
+    snprintf(p, sizeof(p), "%slockstep_lcargo_%s.txt", g_dataDir, g_instance);
+    WIN32_FILE_ATTRIBUTE_DATA fa;
+    if (!GetFileAttributesExA(p, GetFileExInfoStandard, &fa) || fa.nFileSizeLow == 0) return;
+    FILETIME nowFt; GetSystemTimeAsFileTime(&nowFt);
+    const uint64_t wrote = ((uint64_t)fa.ftLastWriteTime.dwHighDateTime << 32) | fa.ftLastWriteTime.dwLowDateTime;
+    const uint64_t now = ((uint64_t)nowFt.dwHighDateTime << 32) | nowFt.dwLowDateTime;
+    if (now > wrote && now - wrote > 5ULL * 10000000ULL) return;
+    FILE* f = _fsopen(p, "r", _SH_DENYNO);
+    if (!f) return;
+    static char buf[65536];
+    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = 0;
+    long lid = 0, seq = 0; int used = 0;
+    if (sscanf(buf, "%ld %ld%n", &lid, &seq, &used) != 2 || lid != (long)entity || seq == g_lcargoSeen) return;
+    g_lcargoSeen = seq;
+    uint64_t sb = 0;
+    const uint64_t span = ReadVec(line, &sb, LINE_ANY_SPAN);
+    if (!span || span % 0xa8) { Log("[lcargo] line=%ld: the Line's stops are unreadable -- replayed WITHOUT its cargo filters\n", lid); return; }
+    const int nStops = (int)(span / 0xa8);
+    int applied = 0, refused = 0;
+    char* s = buf + used;
+    while (*s) {
+        while (*s == ' ' || *s == '\r' || *s == '\n') s++;
+        if (!*s) break;
+        char* tokEnd = s; while (*tokEnd && *tokEnd != ' ' && *tokEnd != '\r' && *tokEnd != '\n') tokEnd++;
+        char* colon = (char*)memchr(s, ':', tokEnd - s);
+        char* bar1 = colon ? (char*)memchr(colon, '|', tokEnd - colon) : nullptr;
+        char* bar2 = bar1 ? (char*)memchr(bar1 + 1, '|', tokEnd - bar1 - 1) : nullptr;
+        const int stopNo = atoi(s);
+        std::vector<uint32_t> ld, ul, mx;
+        const bool ok = colon && bar1 && bar2 && stopNo >= 1 && stopNo <= nStops
+            && CargoParseList(colon + 1, bar1, false, &ld) && CargoParseList(bar1 + 1, bar2, false, &ul)
+            && CargoParseList(bar2 + 1, tokEnd, true, &mx);
+        uint8_t* stop = ok ? (uint8_t*)(sb + (uint64_t)(stopNo - 1) * 0xa8) : nullptr;
+        if (!ok || !CargoVecEmpty(stop + 0x50) || !CargoVecEmpty(stop + 0x70) || !CargoVecEmpty(stop + 0x90)) {
+            refused++;
+        } else {
+            auto words = [](const std::vector<uint32_t>& bits) {
+                std::vector<uint32_t> w((bits.size() + 31) / 32, 0u);
+                for (size_t i = 0; i < bits.size(); i++) if (bits[i]) w[i >> 5] |= 1u << (i & 31);
+                return w;
+            };
+            CargoVecFill(stop + 0x50, words(ld)); *(uint64_t*)(stop + 0x68) = ld.size();
+            CargoVecFill(stop + 0x70, words(ul)); *(uint64_t*)(stop + 0x88) = ul.size();
+            CargoVecFill(stop + 0x90, mx);
+            applied++;
+        }
+        s = tokEnd;
+    }
+    Log("[lcargo] LUPDATE replay line=%ld seq=%ld: cargo filters written into %d stop(s)%s\n", lid, seq, applied,
+        refused ? " -- some REFUSED (bad record, or a list not empty)" : "");
+}
+
 static void InstallLineAssign()
 {
     const uint8_t* code = (const uint8_t*)(g_base + RVA_LINE_ASSIGN);
@@ -874,4 +981,4 @@ static void WriteInjectBuyLine(int32_t line)
     fprintf(f, "VBUYLINE %d\n", line);
     fclose(f);
     Log("[slice] VBUYLINE shipped: the cancelled buy was a clone onto line %d\n", line);
-}
+}

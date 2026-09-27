@@ -235,25 +235,33 @@ function CM.lineCaptureCargo(line, stops)
 		stops[s] = stops[s] .. "^" .. cfg
 	end
 end
--- a record's filter into a Line.Stop being built. Every read of sc.load (like
--- s.stopConfig itself) hands out a COPY: appending to sc.load[...] directly filled
--- a copy that was thrown away, and the replayed stop had no filter (2026-09-26,
--- measured: the cfg reached both instances, both stops read back empty). So each
--- list is taken, filled and assigned back, as alternativeTerminals is below.
-function CM.lineApplyCargo(s, cfg)
-	local l, u, m = cfg:match("^([^|]*)|([^|]*)|([^|]*)$")
-	if not l then error("bad cargo filter " .. cfg) end
-	local sc = s.stopConfig
-	local function fill(field, text, conv)
-		local v = sc[field]
-		local k = #v
-		for x in text:gmatch("[^_]+") do k = k + 1; v[k] = conv(x) end
-		sc[field] = v
+-- The filters of a line about to be replayed, for the slice. The Lua API reads a
+-- stop's stopConfig but cannot set it (measured live: `sc.load = v` left sc.load
+-- empty), so the slice writes them into the Line this updateLine passes, in the
+-- factory hook (lines.inl CARGO FILTERS AT THE REPLAY). Written right before
+-- api.cmd.make.updateLine, cleared right after (CM.lineCargoDone).
+function CM.lineCargoRequest(lid, c)
+	local recs = {}
+	local n = 0
+	for rec in tostring(c and c.stops or ""):gmatch("[^;]+") do
+		n = n + 1
+		local cfg = rec:match("%^([^~]*)")
+		if cfg and cfg ~= "" then recs[#recs + 1] = n .. ":" .. cfg end
 	end
-	fill("load", l, function(x) return math.floor(tonumber(x)) end)
-	fill("unload", u, function(x) return math.floor(tonumber(x)) end)
-	fill("maxLoad", m, tonumber)
-	s.stopConfig = sc
+	if #recs == 0 then return false end
+	CM.lcargoSeq = (CM.lcargoSeq or (os.time() % 100000000) * 10) + 1
+	local ok = false
+	pcall(function()
+		local f = io.open(K.BASE .. "lockstep_lcargo_" .. K.INSTANCE .. ".txt", "w")
+		if f then f:write(string.format("%d %d %s", lid, CM.lcargoSeq, table.concat(recs, " "))); f:close(); ok = true end
+	end)
+	return ok
+end
+function CM.lineCargoDone()
+	pcall(function()
+		local f = io.open(K.BASE .. "lockstep_lcargo_" .. K.INSTANCE .. ".txt", "w")
+		if f then f:close() end
+	end)
 end
 
 -- Two stop signatures name the same stops when every group (and station, when
@@ -816,11 +824,6 @@ local function buildLineObject(c)
 		s.loadMode = f[5]
 		s.minWaitingTime = f[6]
 		s.maxWaitingTime = f[7]
-		local cargo = rec:match("%^([^~]*)")
-		if cargo then
-			local okC, errC = pcall(CM.lineApplyCargo, s, cargo)
-			if not okC then log(string.format("line: stop %d cargo filter not applied: %s", n + 1, tostring(errC))) end
-		end
 		local wp = CM.lineReadWaypoints(rec)
 		if #wp > 0 then
 			local target = s.waypoints
@@ -858,8 +861,10 @@ function CM.lineApplyNow(lid, c)
 		CM.lineHistNote(c.key, c.stops or "", c.alts or "")
 	end)
 	local asked = CM.lineAssignRequest(lid, c)
+	local cargo = CM.lineCargoRequest(lid, c)
 	local cmd = api.cmd.make.updateLine(lid, lineObj)
 	if asked then CM.lineAssignDone() end
+	if cargo then CM.lineCargoDone() end
 	api.cmd.sendCommand(cmd, function(res, success)
 		log(string.format("LUPDATE %s: applied here at once (no vehicles) stops=%d success=%s%s", tostring(c.key), n, tostring(success),
 			asked and " (platforms assigned here)" or ""))
@@ -1004,8 +1009,10 @@ function CM.execLine(c)
 			end)
 			local sentTick = CM.ticks
 			local asked = CM.lineAssignRequest(lid, c)
+			local cargo = CM.lineCargoRequest(lid, c)
 			local cmd = api.cmd.make.updateLine(lid, lineObj)
 			if asked then CM.lineAssignDone() end
+			if cargo then CM.lineCargoDone() end
 			api.cmd.sendCommand(cmd, function(res, success)
 				log(string.format("EXEC LUPDATE seq=%s origin=%s at=%s %s stops=%d success=%s step=%d +%d ticks%s",
 					tostring(c.seq), tostring(c.origin), tostring(c.at), tostring(c.key), n, tostring(success),

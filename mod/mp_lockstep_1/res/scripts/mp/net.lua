@@ -519,6 +519,9 @@ local function decodeCmd(line)
 	return c
 end
 
+-- a peer clock this far ahead of ours is not this world's (CM.scheduleLocal)
+K.LEAD_SANE = 600
+
 function CM.scheduleLocal(op, args)
 	if CM.resyncHold then return end
 	local now = CM.gameTime()
@@ -548,10 +551,23 @@ function CM.scheduleLocal(op, args)
 		if lead < 0 then lead = 0 end
 		-- Capping this at the barrier's threshold (5 units then) was wrong: a live
 		-- session was seen 9.2 units apart, and a command stamped 5.6 out then
-		-- still landed in the peer's past and was applied out of step. Cap high
-		-- enough to cover the gaps seen in practice; the delay is felt by the
-		-- player, so it is not unbounded either.
-		if lead > CM.MAX_LEAD then lead = CM.MAX_LEAD end
+		-- still landed in the peer's past and was applied out of step.
+		-- NOT CAPPED AT MAX_LEAD EITHER (2026-09-26): a joiner catching up 63 units
+		-- behind the host stamped a speed vote and its company's headquarters 15
+		-- out; both reached the host 26-33 units late, were applied out of step,
+		-- and the towns grew apart (desyncs at t=31824 and t=31968 in a player's
+		-- logs). The player-action gate (inject.lua ACTIONS OFF) does not cover
+		-- what the mod itself schedules. A stamp in any peer's past is a desync;
+		-- one far in our own future only waits, and a game this far behind runs
+		-- at catch-up speed. Only a clock beyond K.LEAD_SANE is ignored: that peer
+		-- is not in this world (a forked clock at 202,740 was seen), and waiting
+		-- for it would hold every command forever.
+		if lead > K.LEAD_SANE then
+			log(string.format("stamp: the fastest peer is %.1f ahead (over %d) -- not this world's clock; stamping %.1f out", lead, K.LEAD_SANE, CM.MAX_LEAD))
+			lead = CM.MAX_LEAD
+		elseif lead > CM.MAX_LEAD then
+			log(string.format("stamp: this game is %.1f behind -- stamped in the peer's future anyway; it runs here once we catch up", lead))
+		end
 	end
 	-- the measured delay (CM.execDelayTick), or K.EXEC_DELAY when pinned or not yet measured
 	local base = CM.execDelayCur or K.EXEC_DELAY

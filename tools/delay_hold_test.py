@@ -262,6 +262,38 @@ check("DROPNEXT: the LSCMD is not sent, the LSHI is", not any(x.startswith("LSCM
 check("DROPNEXT: kept for resend and cleared after one command", h.CM.sentRing[2] is not None and h.CM.dropNextCmd is None)
 
 
+# ---- far-behind joiner stamps (Windows dev 06188ea5) ----
+for gap in (-5, 0, 5, 15, 33, 63, 600, 600.01, 202690):
+    for op in ("SPEED", "CON"):
+        L, h = runtime()
+        h.setNow(50.0)
+        h.CM.execDelayCur = 0.8
+        h.CM.peerBounds = L.eval("function() return nil, %r end" % (50 + gap))
+        h.CM.scheduleLocal(op, L.table_from({}))
+        c = h.CM.queue[1]
+        lead = 15 if gap > 600 else max(0, gap)
+        expected = 50 + lead + 0.8
+        check(f"{op} gap={gap}: expected future stamp", abs(c.at - expected) < 1e-9)
+        if 0 <= gap <= 600:
+            check(f"{op} gap={gap}: ahead of fastest peer", c.at > 50 + gap)
+        stamp = f"at={c.at:.4f}"
+        sent = lua_list(h.sent())
+        check(f"{op} gap={gap}: queue, wire, announcement and resend agree",
+              stamp in h.CM.sentRing[1] and
+              any(x.startswith("LSHI ") and stamp in x for x in sent) and
+              abs(h.CM.lastSchedAt - c.at) < 1e-9)
+        check(f"{op} gap={gap}: foreign clock diagnostic only above cutoff",
+              ("not this world's clock" in h.logs()) == (gap > 600))
+
+# Projection includes a simulation step; extra delay still follows the full lead.
+L, h = runtime()
+h.CM.peerBounds = L.eval("function() return nil, 83 end")
+h.CM.projectedPeerMax = L.eval("function() return 113 end")
+h.CM.scheduleLocal("CON", L.table_from({"delay": 0.4}))
+check("projected fastest clock plus step, base and explicit delay",
+      abs(h.CM.queue[1].at - 114.0) < 1e-9)
+
+
 # ---- gap hold ----
 def rx(h, missing_age=2, stamp2=None, stamp3=None, nack=0):
     CMh = h.CM

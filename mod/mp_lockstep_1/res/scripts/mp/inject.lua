@@ -33,10 +33,12 @@ function CM.soloDrop(line)
 	end
 end
 
--- FAR BEHIND, THE PLAYER'S ACTIONS ARE OFF (2026-09-15). A command's stamp pays at
--- most CM.MAX_LEAD (15 units) of lead over the fastest game (CM.scheduleLocal). A
--- game further behind than that would stamp its player's actions into the other
--- games' past, where they apply late: a desync. So past K.ACTIONS_OFF_BEHIND the
+-- FAR BEHIND, THE PLAYER'S ACTIONS ARE OFF (2026-09-15). A game further behind the
+-- fastest one than CM.MAX_LEAD (15 units) used to stamp its player's actions into
+-- the other games' past, where they applied late: a desync. Since 2026-09-26 every
+-- stamp lands in the fastest game's future however far behind we are (CM.scheduleLocal),
+-- so this gate is about the wait, not the desync: a click there would land only once
+-- this game has caught up. So past K.ACTIONS_OFF_BEHIND the
 -- player's actions are off until the game is back within K.ACTIONS_ON_BEHIND
 -- (CM.actionsBlockTick, every tick):
 --   * dropped: a capture whose native command the slice CANCELLED -- ARMED 1 ahead
@@ -1354,6 +1356,7 @@ function CM.pollInject()
 						.. (sx and string.format(",%.1f,%.1f", sx, sy) or "")
 					alts[#alts + 1] = table.concat(al, "/")
 				end
+				if not bad and CM.lineCaptureCargo then CM.lineCaptureCargo(line, stops) end
 				if not bad and CM.lineCaptureWaypoints then CM.lineCaptureWaypoints(line, stops) end
 				if armed ~= 1 then
 					CM.pendingLineCreates[#CM.pendingLineCreates + 1] = { since = CM.gameTime() or 0 }
@@ -1452,6 +1455,7 @@ function CM.pollInject()
 								.. (sx and string.format(",%.1f,%.1f", sx, sy) or "")
 							alts[#alts + 1] = table.concat(al, "/")
 						end
+						if not bad and CM.lineCaptureCargo then CM.lineCaptureCargo(line, stops) end
 						if not bad and CM.lineCaptureWaypoints then CM.lineCaptureWaypoints(line, stops) end
 						-- asg=<0|1>: this click ran the editor's platform assignment (a station or
 						-- waypoint added); every instance re-runs it on the replayed list at the

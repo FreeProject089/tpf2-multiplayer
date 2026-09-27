@@ -69,6 +69,7 @@
 #include "native_io_linux.h"
 #include "slice_ready_linux.h"
 #include <dirent.h>
+#include <link.h>
 #include <algorithm>
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -242,8 +243,29 @@ static void Log(const char* fmt, ...)
 static void Status(const std::string& s) { if (S().status) S().status(s.c_str()); }
 static void Dirty() { if (S().dirty) S().dirty(); }
 
+// boot.cpp loads the bridge RTLD_LOCAL before the menu. Inspect the loader's
+// object list: a file or stale instance/status file is not proof of a load.
+// Unlike dlopen without NOLOAD, this cannot accidentally initialize the bridge.
+const char* BridgeProblem()
+{
+    bool loaded = false;
+    dl_iterate_phdr([](dl_phdr_info* info, size_t, void* opaque) {
+        const char* path = info->dlpi_name;
+        const char* slash = strrchr(path, '/');
+        if (strcmp(slash ? slash + 1 : path, "tpf2_bridge_mp.so") != 0) return 0;
+        *static_cast<bool*>(opaque) = true;
+        return 1;
+    }, &loaded);
+    if (loaded) return nullptr;
+    static std::atomic<bool> logged{false};
+    if (!logged.exchange(true))
+        Log("[menu] BRIDGE NOT LOADED: tpf2_bridge_mp.so missing or failed to load; see tpf2_proxy.log for the path and loader error. Hosting and joining refused.\n");
+    return "Multiplayer unavailable: tpf2_bridge_mp.so not loaded. Reinstall and restart; see tpf2_proxy.log.";
+}
+
 static bool CancellationReady(std::string* why)
 {
+    if (const char* problem = BridgeProblem()) { if (why) *why = problem; return false; }
     const char* detail = nullptr;
     if (SliceHooksReady(S().cfg.dataDir.c_str(), &detail)) return true;
     Log("[lobby] multiplayer start refused: %s\n", detail ? detail : "cancellation hooks unavailable");
@@ -2430,6 +2452,7 @@ static bool Base32Code(const std::string& s)
 
 bool Start(const StartRequest& in, std::string* why)
 {
+    if (const char* problem = BridgeProblem()) { if (why) *why = problem; return false; }
     StartRequest r = in;
     if (r.join) {
         const size_t b = r.code.find_first_not_of(" \t\r\n");

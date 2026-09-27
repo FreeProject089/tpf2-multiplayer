@@ -5,11 +5,13 @@ static bool saving=false;
 bool SavingNow(){return saving;}
 }
 static std::string recoveryAction;
+static bool bridgeLoaded = true;
 namespace lobby {
+const char* BridgeProblem(){return bridgeLoaded?nullptr:"Multiplayer unavailable: tpf2_bridge_mp.so not loaded.";}
 void Snapshot(View* v) { *v=panel::P().view; }
 bool AutoCopyPending(){return false;} bool TakeAutoCopy(std::string*){return false;}
 bool CapturesTyping(){return true;}
-bool Start(const StartRequest&,std::string*){assert(false);return false;}
+bool Start(const StartRequest&,std::string* why){assert(!bridgeLoaded);*why=BridgeProblem();return false;}
 void Leave(){assert(false);} std::string SendChat(const std::string&){assert(false);return {};}
 std::string StartGame(){assert(false);return {};}
 void RefreshSaves(){} std::string SelectSave(const std::string&){return {};}
@@ -49,7 +51,7 @@ int main(int argc,char** argv) {
     using namespace panel;
     g_initDone=g_fontsOk=true;g_uiState=1;g_lastFrameMs=NowMs();
     P().username="Player";P().gameDir="/nonexistent/";
-    if(argc>1)layer::AddFont(argv[1]);
+    if(argc>1)assert(layer::AddFont(argv[1]));
     if(argc>2) {
         P().gameDir=argv[2];g_s=1;g_titleTab=0;RenderLocked(780,540);
         if(argc>3) {
@@ -60,6 +62,65 @@ int main(int argc,char** argv) {
             fclose(f);
         }
     }
+    if(layer::HaveFont()) {
+        const auto pixels=[]() {
+            return std::vector<uint8_t>(layer::Pixels(),layer::Pixels()+layer::Width()*layer::Height()*4);
+        };
+        for(int px:{8,13,18}) {
+            const int one=layer::WrappedTextHeight("WWWW",1000,px);
+            assert(one>0);
+            for(const char* text:{"WWWW WWWW WWWW WWWW", "https://example.invalid/averylonglinkwithoutspaces", u8"éééééééééééééééééééééé"}) {
+                const int height=layer::WrappedTextHeight(text,40,px);
+                assert(height>one);
+                layer::Begin(100,400);
+                layer::Text(10,10,40,height,text,px,MW_TEXT,layer::kWordBreak);
+                const auto measured=pixels();
+                layer::Begin(100,400);
+                layer::Text(10,10,40,390,text,px,MW_TEXT,layer::kWordBreak);
+                assert(measured==pixels()); // measured height loses no glyphs
+                bool secondLine=false;
+                for(int y=0;y<400;++y)for(int x=0;x<100;++x) {
+                    if(measured[(y*100+x)*4+3]) {
+                        assert(x>=10 && x<50 && y>=10 && y<10+height);
+                        if(y>=10+one)secondLine=true;
+                    }
+                }
+                assert(secondLine);
+                layer::Begin(100,400);
+                layer::Text(10,10,40,one,text,px,MW_TEXT,layer::kWordBreak);
+                for(int y=10+one;y<400;++y)for(int x=0;x<100;++x)
+                    assert(layer::Pixels()[(y*100+x)*4+3]==0);
+            }
+            assert(layer::WrappedTextHeight("",40,px)==0);
+            assert(layer::WrappedTextHeight("a\nb",1000,px)>one);
+        }
+        for(float scale:{0.65f,1.f,1.4f})for(bool world:{false,true}) {
+            g_s=scale;g_uiState=2;P().view.inGame=world;
+            const int ww=S(780),hh=S(540);
+            const std::string newest(1200,'W');
+            P().view.chat={newest};RenderLocked(ww,hh);const auto alone=pixels();
+            P().view.chat.assign(13,"Older message that should be dropped");
+            P().view.chat.push_back(newest);RenderLocked(ww,hh);
+            assert(alone==pixels()); // newest oversized message survives a full log
+            P().view.chat={"short newest"};RenderLocked(ww,hh);const auto shortOnly=pixels();
+            P().view.chat={newest,"short newest"};RenderLocked(ww,hh);
+            assert(shortOnly==pixels()); // oversized older message cannot displace newest
+            P().view.chat={"old","short newest"};RenderLocked(ww,hh);
+            assert(shortOnly!=pixels()); // older messages remain when both fit
+        }
+        P().view={};g_s=1;g_uiState=1;
+    }
+    bridgeLoaded=false;P().joinCode="ABCDEFGH";
+    for(bool world:{false,true})for(int tab:{0,1}) {
+        P().view.inGame=world;g_titleTab=tab;g_uiState=1;RenderLocked(780,764);
+        assert(!Has(2)&&!Has(3)&&Has(4));
+    }
+    StartLobbyLocked(false,"");
+    assert(g_uiState==1 && P().status.find("tpf2_bridge_mp.so")!=std::string::npos);
+    StartLobbyLocked(true,"ABCDEFGH");assert(g_uiState==1);
+    P().status.clear();
+    bridgeLoaded=true;P().view.inGame=false;g_titleTab=0;
+    RenderLocked(780,764);assert(Has(3));P().joinCode.clear();
     int w,h;g_flagScale=5;LayoutLocked(1280,720,&w,&h);assert(w<=1280 && h<=720);
     g_flagScale=0;LayoutLocked(1920,1080,&w,&h);assert(w==780 && h==764);
     RenderLocked(w,h);assert(Has(110)&&Has(111)&&Has(8)&&!Has(14)&&!Has(3));

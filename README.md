@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Website: [silver2127.github.io/tpf2-multiplayer](https://silver2127.github.io/tpf2-multiplayer/)** ·
-[Download the installer](https://github.com/silver2127/tpf2-multiplayer/releases/latest/download/TpF2Multiplayer.msi) ·
+[Download the launcher (Windows)](https://github.com/silver2127/tpf2-multiplayer/releases/latest/download/TpF2Multiplayer-Launcher-Windows-Setup.exe) · [Linux](https://github.com/silver2127/tpf2-multiplayer/releases/latest/download/TpF2Multiplayer-Launcher-Linux.AppImage) ·
 [Privacy policy](https://silver2127.github.io/tpf2-multiplayer/privacy.html)
 
 **Join The Discord: [https://discord.gg/7VhmtUstqQ](https://discord.gg/7VhmtUstqQ)** ·
@@ -48,9 +48,16 @@ compares them continuously. The lobby handles NAT traversal, encryption and send
 
 ## Install
 
-**Download [`TpF2Multiplayer.msi`](https://github.com/silver2127/tpf2-multiplayer/releases/latest/download/TpF2Multiplayer.msi) (the [latest release](https://github.com/silver2127/tpf2-multiplayer/releases/latest); Linux and Steam Deck: `install_proton.sh` from the same page),
-close the game, and run it.** Everyone in a session needs the same version. A new version is installed the same
-way, over the old one: there is no in-game updater.
+**Download the launcher from the [latest release](https://github.com/silver2127/tpf2-multiplayer/releases/latest):
+[`TpF2Multiplayer-Launcher-Windows-Setup.exe`](https://github.com/silver2127/tpf2-multiplayer/releases/latest/download/TpF2Multiplayer-Launcher-Windows-Setup.exe) or, on Linux and Steam Deck,
+[`TpF2Multiplayer-Launcher-Linux.AppImage`](https://github.com/silver2127/tpf2-multiplayer/releases/latest/download/TpF2Multiplayer-Launcher-Linux.AppImage). Run it and press Update & play.**
+It installs the mod, keeps it up to date and starts the game. Everyone in a session needs the same version.
+
+The launcher downloads the install files from [tpf2-multiplayer-packages](https://github.com/silver2127/tpf2-multiplayer-packages/releases)
+(the release with the same tag); to install by hand, take `TpF2Multiplayer.msi` from there, close the game and
+run it. For versions using the two-launcher layout, the Latest page `v<version>` carries the two launchers;
+the mod repository also carries install files on `<version>` (without `v`). Launchers up to 1.2.0
+must be updated before installing these versions.
 
 The installer finds the game folder through Steam, keeps the game's `alut.dll` as `alut_real.dll` and puts
 the proxy in its place, adds the DLLs, the lobby (the `netpunch\` folder) and the **Transport Fever 2 Multiplayer** mod, and
@@ -59,7 +66,7 @@ to `%LOCALAPPDATA%\tpf2mp\data\`. It installs alongside
 [TpF2 Big Maps](https://github.com/silver2127/tpf2-bigmap) in either order. Details:
 [installer/README.md](installer/README.md).
 
-**Linux and Steam Deck (the Windows game under Proton):** download `install_proton.sh` from the same release and run
+**Linux and Steam Deck (the Windows game under Proton), by hand:** download `install_proton.sh` from the [packages release](https://github.com/silver2127/tpf2-multiplayer-packages/releases/latest) and run
 `sh install_proton.sh` (no Python needed; `install_proton.py` is the Python equivalent); it installs the same files into the Proton game. Details, including the lobby
 repair Wine needs: [docs/proton/INSTALL.md](docs/proton/INSTALL.md). The native Linux game has its own
 build on the `linux-native` branch.
@@ -69,7 +76,7 @@ game's own `alut.dll` is put back. Steam's "Verify integrity of game files" also
 Multiplayer entry until you run the MSI's **Repair**.
 
 Every release is built by GitHub Actions from the tagged source
-([`.github/workflows/build-msi.yml`](.github/workflows/build-msi.yml)); `SHA256SUMS.txt` on the release page lists the
+([`.github/workflows/build-msi.yml`](.github/workflows/build-msi.yml)); `SHA256SUMS.txt` in the matching packages release (also on the mod repository's `<version>` update-files release) lists the
 files it produced. The lobby is a Python program frozen with PyInstaller, and unsigned software of that kind is
 sometimes flagged by antivirus heuristics. The checksums and the build log are how to check that what you downloaded
 is what the source builds.
@@ -255,3 +262,92 @@ The shared lobby implements this on Linux and Windows; version remains 0.7.0.4.
 The [dev `f6e47ef9` integration](docs/linux/UPSTREAM_dev_f6e47ef9.md) adds
 the master's TCP pipe fallback for slow save/mod transfers, shared by Linux
 and Windows. Native shutdown cleanup is preserved; version remains 0.7.0.4.
+
+The [release 0.7.0.5 integration](docs/linux/UPSTREAM_dev_f67726f8.md) advances
+the native package and shared lobby handshake to **0.7.0.5**, stamping the
+previously integrated relay address fix and TCP pipe fallback. All peers,
+including dedicated servers, must update. Existing native feature and
+live-validation limits remain unchanged.
+
+The [dev `ba1fa26e` integration](docs/linux/UPSTREAM_dev_ba1fa26e.md) refuses
+native hosting and joining unless `tpf2_bridge_mp.so` is loaded. The menu
+shows an amber explanation and directs players to the loader log.
+
+The [dev `4e1e486c` integration](docs/linux/UPSTREAM_dev_4e1e486c.md) moves install
+assets to the packages repository while the mod release carries the launchers.
+Native builds now emit the publisher's `-native` assets and checksums; see
+[manual native installation](docs/linux/INSTALL.md). Version remains 0.7.0.5.
+
+The [dev `e12ed657` integration](docs/linux/UPSTREAM_dev_e12ed657.md) adds
+separate `launcher-v<version>` releases without moving the Latest mod release.
+The shared publisher supports Linux AppImages; native version remains 0.7.0.5.
+
+The [dev `2f65bae3` integration](docs/linux/UPSTREAM_dev_2f65bae3.md) adds compressed terrain edits
+with checksum validation to native capture and replay. Every peer needs this
+build; the unchanged 0.7.0.5 version handshake does not detect older terrain
+readers. Uncompressed version-1 edits remain readable.
+
+The [dev `616191b1` integration](docs/linux/UPSTREAM_dev_616191b1.md) makes native OPEN LOGS
+include the newest startup archive’s game log and `crash_*` files as
+`previous_run_*`, so a restart does not hide the crashed run’s dumps.
+Copies remain subject to the archive budget. Version remains 0.7.0.5.
+
+The [dev `363c38cc` integration](docs/linux/UPSTREAM_dev_363c38cc.md) retains the Windows
+terrain-sidecar concurrent-release fix. Native sidecar capture/serving remains
+unported; native pager and alignment batching behavior is unchanged.
+
+The [dev `8978635d` integration](docs/linux/UPSTREAM_dev_8978635d.md) keeps
+launchers on the Latest `<version>` page and install files on `v<version>`
+and the packages repository. Native release version remains 0.7.0.5.
+
+The [dev `e2957841` integration](docs/linux/UPSTREAM_dev_e2957841.md) adds
+`page v<version>` to migrate an already published release to this layout,
+including 0.7.0.5, while preserving its install-file assets.
+
+The [dev `9abb2af1` integration](docs/linux/UPSTREAM_dev_9abb2af1.md) adds
+annotated launcher-page tags and explicit `--replace-page`, and removes an
+earlier migration note when recreating a page. Native version remains 0.7.0.5.
+
+The [dev `8e0a0c00` integration](docs/linux/UPSTREAM_dev_8e0a0c00.md) supersedes
+those earlier release layouts: launchers now stay on `v<version>` (Latest),
+with update files on `<version>` and the packages repository's `v<version>`.
+Launcher-only releases no longer recreate a mod release. Version remains 0.7.0.5.
+
+The [dev `ceee11b1` integration](docs/linux/UPSTREAM_dev_ceee11b1.md) wraps
+native lobby chat to its measured width and retains the newest messages that
+fit. Shared in-game chat now wraps at 52 bytes. Offline rendering tests pass;
+the lab launch was blocked before game startup.
+
+The [dev `0047c19f` integration](docs/linux/UPSTREAM_dev_0047c19f.md) adds shared
+cargo-filter replay records. Native filter capture remains **unported**:
+Linux line edits can still lose filters. The lab could not start for the
+required property/ABI probe; this integration is partial.
+
+The [dev `06188ea5` integration](docs/linux/UPSTREAM_dev_06188ea5.md) keeps
+command stamps ahead of the fastest peer while a joiner catches up, with a
+600-unit sanity cutoff. Shared Lua tests cover the change; no live multiplayer
+result is claimed. Version remains 0.7.0.5.
+
+The [dev `f9d34252` integration](docs/linux/UPSTREAM_dev_f9d34252.md) retains Windows’
+corrected packed cargo-flag reader and tests shared numeric flag transport.
+Native Linux cargo capture remains unported: static layout evidence was
+rechecked, but the lab failed before startup. Linux line edits can still
+lose stop filters. Version remains 0.7.0.5.
+
+The [dev `bef70213` integration](docs/linux/UPSTREAM_dev_bef70213.md) makes native OPEN LOGS
+include the newest startup archive’s mod `*.log` files as `previous_run_*`,
+so the crashed run’s host, terrain and bridge diagnostics accompany its dumps.
+Version remains 0.7.0.5.
+
+The [dev `ad36a976` integration](docs/linux/UPSTREAM_dev_ad36a976.md) replaces Lua cargo-filter
+setters with a native replay request. The Windows writer is retained; the
+Linux writer remains unported after static RE and a lab startup failure.
+Native cargo capture and replay can still lose stop filters. This supersedes
+the earlier `4ccdde5d` mock-based replay claim. Version remains 0.7.0.5.
+
+The [release 0.7.0.6 integration](docs/linux/UPSTREAM_dev_4e857780.md) advances the native package
+and shared lobby handshake to **0.7.0.6**. All peers, including dedicated
+servers, must update. This commit only stamps earlier changes: native cargo
+filter capture/replay and terrain-sidecar capture/serving remain unported.
+The upstream cargo-filter and repeated-load validation does not establish
+native Linux support; existing gameplay-validation limits still apply.

@@ -77,6 +77,15 @@ int wmain(int argc,wchar_t** argv)
     g_flagScale=3; g_scExtent={1280,720}; g_uiState=1;
     assert(UiScale()*800<=1281 && UiScale()*560<=721);
     g_scExtent={0,0};
+    // No bridge in the game (2026-09-26: tpf2_bridge_mp.dll removed): Join/Create are
+    // disabled, and a start is refused with the reason instead of a session that loses builds.
+    g_flagScale=1;g_uiState=1;g_titleTab=0;strcpy_s(g_joinCode,"fixture-0");
+    RenderPanelLayer(780,540);check(780,540);assert(!hit(3));
+    g_titleTab=1;RenderPanelLayer(780,540);check(780,540);assert(!hit(2));
+    SetStatus("");StartLobby(0);assert(strstr(g_status,"tpf2_bridge_mp.dll") && !LobbyRunning());
+    snapshot(folder/L"no-bridge.bmp",780,540);
+    g_bridgeAssumed=true;g_titleTab=0;SetStatus("");
+    RenderPanelLayer(780,540);check(780,540);assert(hit(3));
     std::wstring longName(180,L'W');
     for(float scale : {0.5f,0.75f,1.0f,1.5f,2.0f}) {
         g_flagScale=scale; int w=(int)(780*scale),h=(int)(540*scale);
@@ -99,6 +108,18 @@ int wmain(int argc,wchar_t** argv)
         g_chatCount=2;g_chatHead=0;
         strcpy_s(g_chatLog[0],"Alex: Ready to build the mountain railway?");strcpy_s(g_chatLog[1],"Player 1: Ready!");
         g_titlePlayerPage=0;
+        // a long message wraps instead of ending in "..." (and a word longer than the log breaks)
+        g_chatCount=4;
+        strcpy_s(g_chatLog[2],"Player 2: I will take the northern valley line and the freight yard near the quarry, you do the passenger stations along the lake");
+        strcpy_s(g_chatLog[3],"Player 3: https://example.invalid/a/very/long/link/without/any/spaces/to/break/at/all/in/the/chat/log");
+        RenderPanelLayer(w,h); check(w,h);
+        if(scale==1) snapshot(folder/L"lobby-chat-wrap.bmp",w,h);
+        // more than the log holds: the newest ones stay
+        g_chatCount=14;
+        for(int i=4;i<14;++i) sprintf_s(g_chatLog[i],"Player %d: message %d, a longer line so that several of them need two lines in the log",i,i);
+        RenderPanelLayer(w,h); check(w,h);
+        if(scale==1) snapshot(folder/L"lobby-chat-full.bmp",w,h);
+        g_chatCount=2;
         RenderPanelLayer(w,h); check(w,h); assert(hit(6) && hit(90) && hit(115));
         if(scale==1) snapshot(folder/L"lobby.bmp",w,h);
         SetTransferDetail("To Player 1 | Steam (TCP failed) | 94.9 / 113.0 MB | 0.48 MB/s");

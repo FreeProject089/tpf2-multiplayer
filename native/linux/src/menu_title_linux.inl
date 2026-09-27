@@ -38,7 +38,7 @@ static void RenderTitleLocked(int w,int h) {
         TitleText(pad,S(391),width,S(28),"New players receive a snapshot of the current world.",14,MW_DIM);
         TitleAction(pad,h-S(68),S(90),"CLOSE",4);
         TitleAction(pad+S(120),h-S(68),S(120),"OPEN LOGS",15);
-        TitleAction(w-pad-S(170),h-S(68),S(170),"HOST SESSION",2);
+        TitleAction(w-pad-S(170),h-S(68),S(170),"HOST SESSION",2,!lobby::BridgeProblem());
     } else if(g_uiState==1) {
         TitleAction(w-pad-S(110),S(10),S(110),"OPEN LOGS",15);
         for(int i=0;i<2;++i) {
@@ -89,7 +89,7 @@ static void RenderTitleLocked(int w,int h) {
             if(!count)TitleText(pad+S(10),S(349),width-S(20),S(28),P().pubNote.empty()?"No public games":P().pubNote,14,MW_DIM);
         }
         TitleAction(pad,h-S(68),S(80),"BACK",4);
-        TitleAction(w-pad-S(150),h-S(68),S(150),g_titleTab?"CREATE GAME":"JOIN GAME",g_titleTab?2:3,g_titleTab || !P().joinCode.empty());
+        TitleAction(w-pad-S(150),h-S(68),S(150),g_titleTab?"CREATE GAME":"JOIN GAME",g_titleTab?2:3,(g_titleTab || !P().joinCode.empty()) && !lobby::BridgeProblem());
     } else if(!recovery && !world && P().savePicker && v.isHost && !v.lobbyDone) {
         TitleText(pad,S(57),width,S(28),"Choose the world to share with all players.",14,MW_DIM);
         layer::Rect(pad,S(88),width,S(340),rgb(0,0,0),50);
@@ -156,10 +156,21 @@ static void RenderTitleLocked(int w,int h) {
         TitleText(pad,footer-S(26),rw-S(120),S(22),std::to_string(v.players.size())+" players",12,MW_DIM);
         TitleAction(pad+rw-S(110),footer-S(35),S(50),"<",114,g_playerPage>0);
         TitleAction(pad+rw-S(55),footer-S(35),S(50),">",115,(g_playerPage+1)*per<count);
-        const int chatTop=world && !recovery?S(133):S(245),logH=footer-chatTop-S(45),lh=S(22),lines=std::max(0,(logH-S(16))/lh);
+        const int chatTop=world && !recovery?S(133):S(245),logH=footer-chatTop-S(45),gap=S(4),room=logH-S(16),textW=cw-S(20);
         layer::Rect(cx,chatTop,cw,logH,rgb(0,0,0),50);
-        for(int i=std::max(0,int(v.chat.size())-lines),y=chatTop+S(8);i<int(v.chat.size());++i,y+=lh)
-            TitleText(cx+S(10),y,cw-S(20),lh,v.chat[i],13);
+        // Keep the newest complete messages, allowing the newest alone to clip.
+        std::vector<int> heights(v.chat.size());
+        int first=int(v.chat.size()),used=0;
+        for(int i=int(v.chat.size())-1;i>=0;--i) {
+            const int hgt=std::max(S(22),layer::WrappedTextHeight(v.chat[i].c_str(),textW,S(13))+S(3));
+            if(first<int(v.chat.size()) && used+hgt>room)break;
+            heights[i]=hgt;used+=hgt+gap;first=i;
+        }
+        for(int i=first,y=chatTop+S(8);i<int(v.chat.size());++i) {
+            const int hgt=std::min(heights[i],chatTop+logH-S(8)-y);
+            if(hgt>0)layer::Text(cx+S(10),y,textW,hgt,v.chat[i].c_str(),S(13),MW_TEXT,layer::kWordBreak);
+            y+=heights[i]+gap;
+        }
         MwField(cx,footer-S(37),cw,S(30),P().chatInput,v.active,"Message (Enter to send)",9);
         if(!recovery) {
         if(v.isHost) {
@@ -174,7 +185,9 @@ static void RenderTitleLocked(int w,int h) {
         if(!world && v.isHost)TitleAction(w-pad-S(155),h-S(68),S(155),v.startPending?"SHARING SAVEGAME...":"START GAME",6,v.lobbyReady && !v.startPending);
         }
     }
-    if(!v.transferDetail.empty())TitleText(pad,h-S(29),width,S(22),v.transferDetail,12,MW_DIM);
+    const char* bridgeWhy=g_uiState==1?lobby::BridgeProblem():nullptr;
+    if(bridgeWhy)TitleText(pad,h-S(29),width,S(22),bridgeWhy,12,rgb(255,196,90));
+    else if(!v.transferDetail.empty())TitleText(pad,h-S(29),width,S(22),v.transferDetail,12,MW_DIM);
     else MwStatus(w,h);
     if(!v.modsPrompt.empty()) {
         g_hitCount=0;layer::Rect(0,0,w,h,rgb(0,0,0),180);

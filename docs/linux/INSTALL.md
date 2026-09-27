@@ -67,7 +67,26 @@ Returning to the title menu leaves the lobby. Use the Linux installer for
 updates. Installation also removes the obsolete `mods/m3_determinism_1` probe,
 with removal shown in `--dry-run`.
 
-Download the `.run` installer, then run:
+From 0.7.0.6 onward, download `tpf2mp-linux-<version>-native.run` and
+`tpf2mp-linux-<version>-native.sha256` from the matching tag in
+[tpf2-multiplayer-packages](https://github.com/silver2127/tpf2-multiplayer-packages/releases).
+The same install files also live on the mod repository's `<version>` release
+(without `v`). The `v<version>` page carries the two launchers and is marked
+Latest. Existing versions can be migrated with `page v<version>` (upstream
+applied this to 0.7.0.5): install files are copied to the packages repository
+and `<version>` before being removed from `v<version>`. `--replace-page` is
+no longer supported. Launchers up to 1.2.0 must be updated first, since they
+expect the MSI on `v<version>`. See [the current release layout](UPSTREAM_dev_8e0a0c00.md).
+Verify the `.run` entry in the checksum file before running it:
+
+```sh
+sha256sum --check --ignore-missing tpf2mp-linux-<version>-native.sha256
+bash tpf2mp-linux-<version>-native.run
+```
+
+The `-native.tar.gz` contains the same `tpf2mp-linux-<version>/` directory.
+Local builds also retain the original filenames used below. Download or build
+the `.run` installer, then run:
 
 ```sh
 bash tpf2mp-linux-<version>.run
@@ -255,6 +274,20 @@ The script:
 
 The lobby builder uses pinned Python and manylinux wheels, checks every bundled ELF dependency against glibc 2.31, and supports `--test` for its five local network/transfer tests. Native build provenance, source commit, included libraries and lobby checksum are recorded in `BUILDINFO`.
 
+The builder also emits byte-identical `-native.run` and `-native.tar.gz` copies
+and a `-native.sha256` listing those two filenames. These are the inputs to
+`tools/publish_release.py --linux-dir dist/linux`; no manual renaming is needed.
+The existing filenames and archive root remain available to local tooling.
+See [the release-layout integration](UPSTREAM_dev_4e1e486c.md).
+
+Launcher-only updates use `python3 tools/publish_release.py launcher`
+(default: draft; `--publish` publishes). They need no `--linux-dir` and use
+`launcher-v<version>` tags with `make_latest=false`; Latest remains the
+`v<version>` launcher page. Launcher-only updates no longer delete or re-create
+a mod release. Mod releases require `--linux-dir`, upload native files to both
+install-file releases, and publish `<version>` before the `v<version>` launcher
+page. See [the release-layout integration](UPSTREAM_dev_8e0a0c00.md).
+
 The version defaults to `installer/VERSION`. See `RESUME_STATUS.md` in the source tree for implementation coverage and remaining runtime validation; packaging success alone does not establish multiplayer parity.
 
 ### Big Maps in the unified package
@@ -404,3 +437,70 @@ The shared lobby implements this on Linux and Windows; version remains 0.7.0.4.
 The [dev `f6e47ef9` integration](UPSTREAM_dev_f6e47ef9.md) adds
 the master's TCP pipe fallback for slow save/mod transfers, shared by Linux
 and Windows. Native shutdown cleanup is preserved; version remains 0.7.0.4.
+
+The [release 0.7.0.5 integration](UPSTREAM_dev_f67726f8.md) advances
+the native package and shared lobby handshake to **0.7.0.5**, stamping the
+previously integrated relay address fix and TCP pipe fallback. All peers,
+including dedicated servers, must update. Existing native feature and
+live-validation limits remain unchanged.
+
+## Bridge missing or failed to load
+
+The [dev ba1fa26e integration](UPSTREAM_dev_ba1fa26e.md) disables hosting and
+joining when `tpf2_bridge_mp.so` is not loaded in the game process. The menu
+shows an amber explanation. Reinstall the native package and restart the game;
+check `data/tpf2_proxy.log` for the attempted path and the `dlopen` error.
+Having the file on disk or an old `tpf2_instance.txt` does not establish a load.
+
+The [dev `2f65bae3` integration](UPSTREAM_dev_2f65bae3.md) adds compressed terrain edits
+with checksum validation to native capture and replay. Every peer needs this
+build; the unchanged 0.7.0.5 version handshake does not detect older terrain
+readers. Uncompressed version-1 edits remain readable.
+
+The [dev `616191b1` integration](UPSTREAM_dev_616191b1.md) makes native OPEN LOGS
+include the newest startup archive’s game log and `crash_*` files as
+`previous_run_*`, so a restart does not hide the crashed run’s dumps.
+Copies remain subject to the archive budget. Version remains 0.7.0.5.
+
+The [dev `363c38cc` integration](UPSTREAM_dev_363c38cc.md) retains the Windows
+terrain-sidecar concurrent-release fix. Native sidecar capture/serving remains
+unported; native pager and alignment batching behavior is unchanged.
+
+The [dev `ceee11b1` integration](UPSTREAM_dev_ceee11b1.md) wraps native lobby
+chat to its measured width, including long links, and retains the newest
+messages that fit. In-game Lua chat uses a 52-byte default wrap width.
+Version remains 0.7.0.5; live rendering validation remains outstanding.
+
+The [dev `0047c19f` integration](UPSTREAM_dev_0047c19f.md) adds shared cargo-filter
+wire/replay support but leaves native filter capture unported. Linux line
+edits can still lose stop filters. Version remains 0.7.0.5; no loaded-game
+cargo-filter parity has been demonstrated.
+
+The [dev `06188ea5` integration](UPSTREAM_dev_06188ea5.md) keeps
+command stamps ahead of the fastest peer while a joiner catches up, with a
+600-unit sanity cutoff. Shared Lua tests cover the change; no live multiplayer
+result is claimed. Version remains 0.7.0.5.
+
+The [dev `f9d34252` integration](UPSTREAM_dev_f9d34252.md) retains Windows’
+corrected packed cargo-flag reader and tests shared numeric flag transport.
+Native Linux cargo capture remains unported: static layout evidence was
+rechecked, but the lab failed before startup. Linux line edits can still
+lose stop filters. Version remains 0.7.0.5.
+
+The [dev `bef70213` integration](UPSTREAM_dev_bef70213.md) makes native OPEN LOGS
+include the newest startup archive’s mod `*.log` files as `previous_run_*`,
+so the crashed run’s host, terrain and bridge diagnostics accompany its dumps.
+Version remains 0.7.0.5.
+
+The [dev `ad36a976` integration](UPSTREAM_dev_ad36a976.md) replaces Lua cargo-filter
+setters with a native replay request. The Windows writer is retained; the
+Linux writer remains unported after static RE and a lab startup failure.
+Native cargo capture and replay can still lose stop filters. This supersedes
+the earlier `4ccdde5d` mock-based replay claim. Version remains 0.7.0.5.
+
+The [release 0.7.0.6 integration](UPSTREAM_dev_4e857780.md) advances the native package
+and shared lobby handshake to **0.7.0.6**. All peers, including dedicated
+servers, must update. This commit only stamps earlier changes: native cargo
+filter capture/replay and terrain-sidecar capture/serving remain unported.
+The upstream cargo-filter and repeated-load validation does not establish
+native Linux support; existing gameplay-validation limits still apply.

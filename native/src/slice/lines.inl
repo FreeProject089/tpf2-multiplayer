@@ -52,12 +52,14 @@ struct LineWp   { int32_t entity, index; };                        // transport:
 // The stop's cargo filter, Line::Stop::stopConfig at stop+0x50 (2026-09-26: "cargo
 // filters are not working" -- the replayed update never carried it, so every
 // instance, the clicker included, lost the filter the moment it was set). The Lua
-// type, probed live: load and unload are lists of integers (cargo types), maxLoad a
-// list of floats. In memory, three std::vectors in that order (the binding names
-// them load, unload, maxLoad), 0x18 bytes each, 0x50..0x98. INFERRED from that and
-// the stop's size; checked on every read (a well-formed vector, cargo indices under
-// 1024, finite non-negative loads), and a stop that fails ships without its filter
-// (as before) with the raw bytes in the log.
+// type, probed live: load, unload and maxLoad are lists of numbers. In memory
+// (MEASURED 2026-09-26 from a live edit's raw bytes: a one-word vector at +0x50 and
+// the count 30 at +0x68): load and unload are std::vector<bool> -- a vector of
+// 32-bit words plus a bit count, 0x20 bytes -- one flag per cargo type, at +0x50 and
+// +0x70; maxLoad a std::vector<float> at +0x90, ending at the stop's 0xa8. Each is
+// checked on every read (well-formed, at most 1024 cargo types, finite non-negative
+// loads); a stop that fails ships without its filter, its raw bytes in the log. On
+// the wire the flags are 0/1 numbers, one per cargo type, as the Lua lists hold them.
 struct LineStop { int32_t sg, station, terminal, loadMode; float minWait, maxWait; int nAlt; std::vector<LineAlt> alt; int nWp; std::vector<LineWp> wp;
                   bool cfgOk; std::vector<int32_t> cfgLoad, cfgUnload; std::vector<float> cfgMax; };
 static const uint64_t LINE_ANY_SPAN = ~0ull;   // ReadVec's cap, not used as one
@@ -80,14 +82,24 @@ static bool ReadCfgVec(const uint8_t* at, std::vector<uint32_t>* out)
     memcpy(out->data(), (void*)vb, (size_t)(ve - vb));
     return true;
 }
+// std::vector<bool> (MSVC): a vector<uint32_t> of words, then size_t bits
+static bool ReadCfgBits(const uint8_t* at, std::vector<uint32_t>* out)
+{
+    std::vector<uint32_t> words;
+    if (!ReadCfgVec(at, &words)) return false;
+    uint64_t bits = 0;
+    memcpy(&bits, at + 0x18, 8);
+    if (bits > 1024 || bits > (uint64_t)words.size() * 32) return false;
+    out->clear();
+    for (uint64_t i = 0; i < bits; i++) out->push_back((words[(size_t)(i >> 5)] >> (i & 31)) & 1u);
+    return true;
+}
 static void DecodeStopCargo(const uint8_t* b, int stopNo, LineStop* t)
 {
     std::vector<uint32_t> ld, ul, mx;
     t->cfgOk = false;
     t->cfgLoad.clear(); t->cfgUnload.clear(); t->cfgMax.clear();
-    bool ok = ReadCfgVec(b + 0x50, &ld) && ReadCfgVec(b + 0x68, &ul) && ReadCfgVec(b + 0x80, &mx);
-    for (uint32_t v : ld) if (v >= 1024) ok = false;
-    for (uint32_t v : ul) if (v >= 1024) ok = false;
+    bool ok = ReadCfgBits(b + 0x50, &ld) && ReadCfgBits(b + 0x70, &ul) && ReadCfgVec(b + 0x90, &mx);
     for (uint32_t v : mx) { float f; memcpy(&f, &v, 4); if (!(f >= 0.f) || f > 1e30f) ok = false; }
     if (!ok) {
         static LONG warned = 0;

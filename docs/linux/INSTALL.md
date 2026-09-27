@@ -497,3 +497,10 @@ setters with a native replay request. The Windows writer is retained; the
 Linux writer remains unported after static RE and a lab startup failure.
 Native cargo capture and replay can still lose stop filters. This supersedes
 the earlier `4ccdde5d` mock-based replay claim. Version remains 0.7.0.5.
+
+The [release 0.7.0.6 integration](UPSTREAM_dev_4e857780.md) advances the native package
+and shared lobby handshake to **0.7.0.6**. All peers, including dedicated
+servers, must update. This commit only stamps earlier changes: native cargo
+filter capture/replay and terrain-sidecar capture/serving remain unported.
+The upstream cargo-filter and repeated-load validation does not establish
+native Linux support; existing gameplay-validation limits still apply.

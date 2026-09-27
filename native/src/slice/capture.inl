@@ -63,6 +63,7 @@ static bool WriteInjectVehicleCmd(int fid, uint64_t r8, uint64_t r9, uint64_t st
                     fprintf(f, " %d %d", d.st[i].alt[a].station, d.st[i].alt[a].terminal);
             }
             WriteLineWaypoints(f, d);
+            WriteLineCargo(f, d);
             const int32_t spare = (int32_t)InterlockedCompareExchange(&g_lcSpareId, 0, 0);
             if (spare) fprintf(f, " spare=%d", spare);
             fprintf(f, " name=%s\n", g_lcDecode.nameEnc.c_str());
@@ -85,6 +86,7 @@ static bool WriteInjectVehicleCmd(int fid, uint64_t r8, uint64_t r9, uint64_t st
                     fprintf(f, " %d %d", d.st[i].alt[a].station, d.st[i].alt[a].terminal);
             }
             WriteLineWaypoints(f, d);
+            WriteLineCargo(f, d);
             if (g_lineAsgTag >= 0) fprintf(f, " asg=%d", g_lineAsgTag);
             fprintf(f, "\n");
             if (d.n > 0)

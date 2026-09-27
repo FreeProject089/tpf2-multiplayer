@@ -72,17 +72,17 @@ local cargoCM, cargoK = {}, {INSTANCE="A", INJECT_FILE="test", LINE_EDIT_FREE=0}
 module("net", cargoCM, cargoK)
 module("lines", cargoCM, cargoK)
 module("inject", cargoCM, cargoK)
-local cfg = {load={1,4}, unload={2}, maxLoad={0.25,1}}
-local suffix = "^1_4|2|0.25_1"
+local cfg = {load={1,0}, unload={0,1}, maxLoad={0.25,1}}
+local suffix = "^1_0|0_1|0.25_1"
 assert(cargoCM.lineCargoSuffix(cfg) == suffix)
 assert(cargoCM.lineCargoSuffix(nil) == "")
 assert(cargoCM.lineCargoSuffix({load={},unload={},maxLoad={}}) == "")
 local base = "1.00,2.00,0,0,0,0,180"
 assert(cargoCM.stopsSigEqual(base .. suffix, "1.50,2.00,0,0,0,0,180" .. suffix))
-assert(not cargoCM.stopsSigEqual(base .. suffix, base .. "^1|2|0.25_1"))
+assert(not cargoCM.stopsSigEqual(base .. suffix, base .. "^0_0|0_1|0.25_1"))
 assert(not cargoCM.stopsSigEqual(base .. suffix, base))
 local records = {base, base}
-cargoCM.lineCaptureCargo(" cfg=2:1_4|2|0.25_1", records)
+cargoCM.lineCaptureCargo(" cfg=2:1_0|0_1|0.25_1", records)
 assert(records[1] == base and records[2] == base .. suffix)
 assert(not pcall(cargoCM.lineCaptureCargo, " cfg=3:1|2|3", records))
 assert(not pcall(cargoCM.lineCaptureCargo, " cfg=1:bad", records))
@@ -116,27 +116,40 @@ local wp = "~3.000:4.000:5.000:waypoint.mdl:2"
 local build = up(cargoCM.lineApplyNow, "buildLineObject")
 local cargoEncode = up(cargoCM.scheduleLocal, "encodeCmd")
 local cargoDecode = up(up(cargoCM.pollEvents, "onLine"), "decodeCmd")
-for _,op in ipairs({"LCREATE","LUPDATE"}) do
-    local record = op == "LCREATE" and "LCREATEX 1 0 0 180" or "LUPDATE 42 180"
-    record = record .. " 1 98 0 0 0 0 180 0 wp=1:123:2 cfg=1:1_4|2|0.25_1"
-    if op == "LCREATE" then record = record .. " name=Cargo" end
-    local result
-    cargoCM.readFrom=function() return "ARMED 1\n" .. record .. "\n", 1 end
-    cargoCM.scheduleLocal=function(got,args) assert(got == op); result=args end
-    cargoCM.pollInject()
-    assert(result and result.stops == base .. suffix .. wp)
-    result.op=op; result.at=1; result.origin="A"; result.seq=10
-    local wire=assert(cargoDecode(cargoEncode(result)))
-    assert(wire.stops == result.stops)
-    local obj,n=build(wire)
-    assert(n == 1 and obj.stops[1].stationGroup == 98)
-    assert(cargoCM.lineCargoSuffix(obj.stops[1].stopConfig) == suffix)
-    assert(obj.stops[1].waypoints[1].entity == 123)
-    assert(obj.stops[1].waypoints[1].index == 2)
-    lineComponent=obj
-    local snapshot=assert(cargoCM.lineSnapshot(42))
-    assert(snapshot.stops == base .. suffix .. wp)
-    lineComponent=nil
+-- Per-cargo numeric flags, including zero entries at both ends. Exercise the
+-- Windows 32-bit and Linux 64-bit word boundaries on the shared wire; this
+-- fixture does not decode either platform's packed native storage.
+for _,count in ipairs({2,30,33,65,1024}) do
+    local load, unload, maximum = {}, {}, {}
+    for i=1,count do
+        load[i] = (i == 2 or i == 32 or i == 64) and 1 or 0
+        unload[i] = 0
+        maximum[i] = i == 2 and 0.25 or 1
+    end
+    local suffix = "^" .. table.concat(load,"_") .. "|" ..
+        table.concat(unload,"_") .. "|" .. table.concat(maximum,"_")
+    for _,op in ipairs({"LCREATE","LUPDATE"}) do
+        local record = op == "LCREATE" and "LCREATEX 1 0 0 180" or "LUPDATE 42 180"
+        record = record .. " 1 98 0 0 0 0 180 0 wp=1:123:2 cfg=1:" .. suffix:sub(2)
+        if op == "LCREATE" then record = record .. " name=Cargo" end
+        local result
+        cargoCM.readFrom=function() return "ARMED 1\n" .. record .. "\n", 1 end
+        cargoCM.scheduleLocal=function(got,args) assert(got == op); result=args end
+        cargoCM.pollInject()
+        assert(result and result.stops == base .. suffix .. wp)
+        result.op=op; result.at=1; result.origin="A"; result.seq=10
+        local wire=assert(cargoDecode(cargoEncode(result)))
+        assert(wire.stops == result.stops)
+        local obj,n=build(wire)
+        assert(n == 1 and obj.stops[1].stationGroup == 98)
+        assert(cargoCM.lineCargoSuffix(obj.stops[1].stopConfig) == suffix)
+        assert(obj.stops[1].waypoints[1].entity == 123)
+        assert(obj.stops[1].waypoints[1].index == 2)
+        lineComponent=obj
+        local snapshot=assert(cargoCM.lineSnapshot(42))
+        assert(snapshot.stops == base .. suffix .. wp)
+        lineComponent=nil
+    end
 end
 local legacy=build{stops=base,wait=180}
 assert(cargoCM.lineCargoSuffix(legacy.stops[1].stopConfig) == "")

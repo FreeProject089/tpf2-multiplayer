@@ -480,3 +480,9 @@ The [dev `06188ea5` integration](UPSTREAM_dev_06188ea5.md) keeps
 command stamps ahead of the fastest peer while a joiner catches up, with a
 600-unit sanity cutoff. Shared Lua tests cover the change; no live multiplayer
 result is claimed. Version remains 0.7.0.5.
+
+The [dev `f9d34252` integration](UPSTREAM_dev_f9d34252.md) retains Windows’
+corrected packed cargo-flag reader and tests shared numeric flag transport.
+Native Linux cargo capture remains unported: static layout evidence was
+rechecked, but the lab failed before startup. Linux line edits can still
+lose stop filters. Version remains 0.7.0.5.
